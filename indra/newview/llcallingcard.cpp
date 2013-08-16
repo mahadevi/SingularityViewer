@@ -68,6 +68,10 @@
 #include "llavatarname.h"
 #include "llavatarnamecache.h"
 
+// [Ratany:]
+#include <boost/algorithm/string.hpp>
+// [/Ratany]
+
 ///----------------------------------------------------------------------------
 /// Local function declarations, constants, enums, and typedefs
 ///----------------------------------------------------------------------------
@@ -722,6 +726,9 @@ void LLAvatarTracker::processNotify(LLMessageSystem* msg, bool online)
 	}
 }
 
+
+extern bool xantispam_check(const std::string&, const std::string&, const std::string&);
+
 static void on_avatar_name_cache_notify(const LLUUID& agent_id,
 										const LLAvatarName& av_name,
 										bool online,
@@ -731,20 +738,31 @@ static void on_avatar_name_cache_notify(const LLUUID& agent_id,
 	// Use display name only because this user is your friend
 	std::string name;
 	LLAvatarNameCache::getPNSName(av_name, name);
+
+	// this should be a full name, like "Ratany Resident" --- is that possible here?
+	boost::algorithm::trim(name);
+
 	LLSD args;
 	args["NAME"] = name;
+	LLNotificationPtr notification;
 
-	// Popup a notify box with online status of this agent
-	LLNotificationPtr notification = LLNotificationsUtil::add(online ? "FriendOnline" : "FriendOffline", args, payload);
+	std::string notifyMsg = (online ? name + " is online" : name + " is offline");
+	// [Ratany:] Note: request types starting with '!' do not trigger xantispam notifications
+	if(!xantispam_check(agent_id.asString(), (online ? "!StatusFriendIsOnline" : "!StatusFriendIsOffline"), name))
+	{
+		// Popup a notify box with online status of this agent
+		notification = LLNotificationsUtil::add(online ? "FriendOnline" : "FriendOffline", args, payload);
+		notifyMsg = notification->getMessage();
+	}
+	xantispam_check(agent_id.asString(), (online ? "&-ExecFriendIsOnline!" : "&-ExecFriendIsOffline!"), notifyMsg);
 
-	// If there's an open IM session with this agent, send a notification there too.
+	// If there's an open IM session with this agent, send a notification there too,
+	// even when the pop-up has been blocked by xantispam.
 	LLUUID session_id = LLIMMgr::computeSessionID(IM_NOTHING_SPECIAL, agent_id);
 	LLFloaterIMPanel *floater = gIMMgr->findFloaterBySession(session_id);
-	if (floater)
+	if (floater && !notifyMsg.empty())
 	{
-		std::string notifyMsg = notification->getMessage();
-		if (!notifyMsg.empty())
-			floater->addHistoryLine(notifyMsg,gSavedSettings.getColor4("SystemChatColor"));
+		floater->addHistoryLine(notifyMsg,gSavedSettings.getColor4("SystemChatColor"));
 	}
 }
 

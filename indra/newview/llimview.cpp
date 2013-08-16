@@ -479,6 +479,9 @@ LLIMMgr::~LLIMMgr()
 	// Children all cleaned up by default view destructor.
 }
 
+
+extern bool xantispam_check(const std::string&, const std::string&, const std::string&);
+
 // Add a message to a session. 
 void LLIMMgr::addMessage(
 	const LLUUID& session_id,
@@ -583,7 +586,12 @@ void LLIMMgr::addMessage(
 			floater->addHistoryLine(bonus_info.str(), gSavedSettings.getColor4("SystemChatColor"));
 		}
 
-		make_ui_sound("UISndNewIncomingIMSession");
+		// see if sound or program execution is desired on new sessions
+		if(xantispam_check(other_participant_id.asString(), (floater->isGroupSessionType() ? "&-GRNewSessionNoSnd" : "&-IMNewSessionNoSnd"), name))
+		{
+			make_ui_sound("UISndNewIncomingIMSession");
+		}
+		xantispam_check(other_participant_id.asString(), (floater->isGroupSessionType() ? "&-ExecOnNewGRSession!" : "&-ExecOnNewIMSession!"), "New chat session: " + name);
 	}
 
 	// now add message to floater

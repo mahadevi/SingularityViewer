@@ -3013,6 +3013,7 @@ Bitte versuche es mit einem kleineren St&#xFC;ck Land.<tag>fehlgeschlagen</tag><
 
 <!-- Singularity Specific notifications should go below here, alphabetically -->
 <!-- Singu TODO: Migrate our special notifications to here -->
+
   <notification name="AntiSpamBlock">AntiSpam: Blockiert [SOURCE] wegen Spams [TYPE]s [AMOUNT] Zeit in [TIME] Sekunden.</notification>
 
   <notification name="AntiSpamNewlineFlood">AntiSpam: Blockiert neue Zeile Flood Spam from [SOURCE] (mit [AMOUNT] Zeilen).</notification>
@@ -3026,5 +3027,230 @@ M&#xF6;chtest du Radarinformationen zu Objekten in der Sim aktivieren?<usetempla
 Do you wish to export anyway?<usetemplate name="okcancelbuttons" yestext="Proceed"/></notification>
 
   <notification name="WavefrontExportSuccess">Object successfully exported to: [FILENAME]</notification>
+
+
+<!-- xantispam notifications -->
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispam"
+   type="alert">
+XantiSpam hat einen Dialog abgefangen:
+
+
+Typ:
+    [TYPE]
+
+Von:
+    [FROM]
+
+
+Dauerhaufte and flüchtige XAntiSpam Regeln sind abgeschaltet, Rückfragen sind angeschaltet.
+
+Wenn Sie XAntiSpam Regeln anschalten, können Sie mittels der Rückfragen diesen SPAM Filter 'trainieren'. Das bedeutet, daß Sie Dialoge von bestimmten Einwohnern und Objekten individuell erlauben oder verbieten können. Sobald das 'Training' abgeschlossen ist, können Sie die Rückfragen abschalten und empfangen dann nur Dialoge, die Sie tatsächlich empfangen wollen. Wenn Sie die Regeln nicht anschalten und die Rückfragen abschalten, dann macht der XAntiSpam Filter gar nichts.
+
+Was möchten Sie tun?
+   <form name="form">
+     <button
+	 index="2"
+	 name="Nothing"
+	 text="Nichts"/>
+     <button
+	 index="6"
+	 name="EnableXAntiSpam"
+	 text="XAntiSpam Anschalten"/>
+     <button
+	 index="7"
+	 name="EnableXAntiSpam"
+	 text="Rückfragen Abschalten"/>
+   </form>
+  </notification>
+
+
+  <notification
+   icon="notifytip.tga"
+   name="xantispamNadvfull"
+   type="notifytip">
+XAntiSpam hat entdeckt, daß der [TYPE]-Zwischenspeicher während des automatischen Vorbefüllens einen Schwellwert seines Fassungsvermögens erreicht hat. Es wird empfohlen, die dauerhaften Zwischenspeicher absichtlich vorzubefüllen, um möglicherweise eine Leistungsverbesserung zu erreichen.
+  </notification>
+
+
+  <notification
+   icon="notifytip.tga"
+   name="xantispamNblk"
+   type="notifytip">
+XAntiSpam: Blockiere [TYPE] from [SOURCE] gemäß der Regeln
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNclrcache"
+   type="notifytip">
+XAntiSpam: Zwischenspeicher vom Tpy '[TYPE]' wurden geleert.
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNexecIllegal"
+   type="notifytip">
+XAntiSpam: Keine anderen Programme als aufgeführt in AntiSpamXtendedAllowedExecutables dürfen via XAntiSpam Regeln ausgeführt werden, und '[EXECUTABLE]' ist nicht aufgeführt.
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNexecRun"
+   type="notifytip">
+XAntiSpam: Programmstarter: Status für [RUNTYPE]: [EXECUTABLE] [OPTIONS]: [STATUS]
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNexecMissing"
+   type="notifytip">
+XAntiSpam: fehlende Programmangabe oder leerer Befehl in [RULE]
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNflood"
+   type="notifytip">
+XAntiSpam: Zu viele Rückfragen ([REQUESTS]) offen; diese Info ist abgeschaltet solange die Überflutung andauert.
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamNtimeout"
+   type="notifytip">
+XAntiSpam: Eingehender SPAM ([CALLS]) überschreitet den Schwellenwert für die letzten zehn Sekunden ([MAXCALLS]), blockiere ohne Bearbeitung. Diese Info ist abgeschaltet, solange die Überflutung andauert.
+  </notification>
+
+
+  <notification
+   icon="notifytip.tga"
+   name="xantispamNselfblk"
+   type="notifytip">
+XAntiSpam: Dialoge von [UUID] übergehen die Regeln, da es Ihre eigene UUID ist.
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamPersistent"
+   type="alert">
+XantiSpam hat einen Dialog abgefangen:
+
+
+Typ:
+    [TYPE]
+
+Von:
+    [FROM]
+
+
+Sie können derartige Dialoge zukünftig automatisch erlauben oder ablehnen lassen mittels dauerhafter XAntiSpam Regeln. "Blacklist" und "Whitelist" sind dauerhaft und ändern sich nur, wenn Sie die Dateien mit den Regeln ändern. Sie können zeitweilige XAntiSpam Regeln anschalten, die nur für eine Sitzung erhalten bleiben.
+
+Was möchten Sie tun?
+   <form name="form">
+     <button
+	 index="2"
+	 name="Nothing"
+	 text="Nothing"/>
+     <button
+	 index="0"
+	 name="PermanentlyBlacklist"
+	 text="Blacklist"/>
+     <button
+	 index="1"
+	 name="PermanentlyWhitelist"
+	 text="Whitelist"/>
+   </form>
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamVolatile"
+   type="alert">
+XantiSpam hat einen Dialog abgefangen:
+
+
+Typ:
+    [TYPE]
+
+Von:
+    [FROM]
+
+
+Mittels zeitweiliger XAntiSpam Regeln können Sie derartige Dialoge zukünftig automatisch erlauben oder ablehnen. "Erlauben" und "Ablehnen" bleiben nur während einer Sitzung erhalten. Sie können dauerhafte Regeln anschalten, die erhalten bleiben bis Sie die Dateien mit den Regeln ändern.
+
+Was möchten Sie tun?
+   <form name="form">
+     <button
+	 index="2"
+	 name="Nothing"
+	 text="Nichts"/>
+     <button
+	 index="3"
+	 name="TemporarilyBlacklist"
+	 text="Ablehnen"/>
+     <button
+	 index="4"
+	 name="TemporarilyWhitelist"
+	 text="Erlauben"/>
+   </form>
+  </notification>
+
+
+  <notification
+   icon="notify_caution_icon.tga"
+   name="xantispamVolatilePersistent"
+   type="alert">
+XantiSpam hat einen Dialog abgefangen:
+
+
+Typ:
+    [TYPE]
+
+Von:
+    [FROM]
+
+
+Mittels dauerhafter oder zeitweiliger XAntiSpam Regeln können Sie derartige Dialoge zukünftig automatisch erlauben oder ablehnen. "Erlauben" und "Ablehnen" bleiben nur während einer Sitzung erhalten. "Blacklist" und "Whitelist" sind dauerhaft und ändern sich nur, wenn Sie die Dateien mit den Regeln ändern.
+
+Was möchten Sie tun?
+   <form name="form">
+     <button
+	 index="2"
+	 name="Nothing"
+	 text="Nichts"/>
+     <button
+	 index="0"
+	 name="PermBlack"
+	 text="Blacklist"/>
+     <button
+	 index="1"
+	 name="PermWhite"
+	 text="Whitelist"/>
+     <button
+	 index="3"
+	 name="TempBlack"
+	 text="Ablehnen"/>
+     <button
+	 index="4"
+	 name="TempWhite"
+	 text="Erlauben"/>
+   </form>
+  </notification>
+
+
+<!-- /xantispam notifications -->
+
 
 </notifications>

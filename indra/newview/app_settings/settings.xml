@@ -1377,7 +1377,7 @@ This should be as low as possible, but too low may break functionality</string>
     <key>AntiSpamXtendedAllowedExecutables</key>
     <map>
       <key>Comment</key>
-      <string>A list of programs XAntiSpam is allowed to execute when rules call for it. The list is delimited by exclamation marks.</string>
+      <string>A list of programs XAntiSpam is allowed to execute when rules call for it. The list is delimited by exclamation marks, e. g.: /bin/emacs!/bin/gedit</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>

@@ -3067,6 +3067,8 @@ void xantispam_buttons(const int action)
 		gSavedSettings.setBOOL("AntiSpamXtendedSilentRq", 1);
 		gSavedSettings.setBOOL("NotifyRecievesFocus", 0);
 
+		xantispam_make_listheader(whichlist);
+
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "XAntiSpam has been enabled with default settings. You can change the settings in the preferences floater."));
 		//
 		// Note: This is a crazy amount of settings.

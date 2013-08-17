@@ -2648,14 +2648,24 @@ static bool xantispam_process_launcher(const std::string& rule, const std::strin
 //
 static bool xantispam_backgnd(const xantispam_request *request, std::vector<xantispam_request>& whitecache, const std::string& info)
 {
-	// not much here yet ... Types:
-	//
-	// &-IMLogDistinct: prepend friend_ or resident_ when saving non-group IM logs (llimpanel.cpp)
-	// &-IMLogDontSave: do not save the conversation (llimpanel.cpp)
-	// &-ExecOnEachIM:  execute an external process, like a notification utility, for each IM (llimpanel.cpp)
-	//
 	// info may be used to transfer further information if needed
 	// to process a request
+	//
+	// Types:
+	//
+	// # &-ExecFriendIsOffline!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-ExecFriendIsOnline!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-ExecOnEachGS!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-ExecOnEachIM!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-ExecOnNewGRSession!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-ExecOnNewIMSession!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-GRNewSessionNoSnd
+	// # &-IMLogDistinct
+	// # &-IMLogHistoryExternal
+	// # &-IMLogHistoryExternal![parameter_1!parameter_2!...!parameter_N][!%s]
+	// # &-IMNewSessionNoSnd
+	// # &-StatusFriendIsOffline
+	// # &-StatusFriendIsOnline
 
 	bool hasrule = xantispam_transparentlookup(whitecache, request, true);
 	if(!hasrule)
@@ -2688,7 +2698,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	}
 
 #if 0 // kinda unreachable code --- only here to show what would be done if something needed to be done
-	if(!request->type.find("&-GRNewSessionNoSnd") || !request->type.find("&-IMNewSessionNoSnd"))
+	if(!request->type.find("&-GRNewSessionNoSnd") || !request->type.find("&-IMNewSessionNoSnd") || !request->type.find("&-StatusFriendIsOnline") || !request->type.find("&-StatusFriendIsOffline"))
 	{
 		return hasrule;
 	}
@@ -3067,7 +3077,8 @@ void xantispam_buttons(const int action)
 		gSavedSettings.setBOOL("AntiSpamXtendedSilentRq", 1);
 		gSavedSettings.setBOOL("NotifyRecievesFocus", 0);
 
-		xantispam_make_listheader(whichlist);
+		xantispam_make_listheader(gDirUtilp->getLindenUserDir() + gDirUtilp->getDirDelimiter() + XANTISPAM_WHITELISTFILE);
+		xantispam_make_listheader(gDirUtilp->getLindenUserDir() + gDirUtilp->getDirDelimiter() + XANTISPAM_BLACKLISTFILE);
 
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "XAntiSpam has been enabled with default settings. You can change the settings in the preferences floater."));
 		//

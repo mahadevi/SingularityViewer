@@ -2666,6 +2666,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	// # &-IMNewSessionNoSnd
 	// # &-StatusFriendIsOffline
 	// # &-StatusFriendIsOnline
+	// # &-IMSendNoAutoresponses
 
 	bool hasrule = xantispam_transparentlookup(whitecache, request, true);
 	if(!hasrule)
@@ -2697,13 +2698,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 		return xantispam_process_launcher(rule, info);
 	}
 
-#if 0 // kinda unreachable code --- only here to show what would be done if something needed to be done
-	if(!request->type.find("&-GRNewSessionNoSnd") || !request->type.find("&-IMNewSessionNoSnd") || !request->type.find("&-StatusFriendIsOnline") || !request->type.find("&-StatusFriendIsOffline"))
-	{
-		return hasrule;
-	}
-#endif
-
+	// For the rules that don't do someting special, return the result of the lookup.
 	return hasrule;
 }
 
@@ -3858,7 +3853,9 @@ void process_improved_im(LLMessageSystem *msg, void **user_data)
 
 			// return a standard "busy" message, but only do it to online IM
 			// (i.e. not other auto responses and not store-and-forward IM)
-			if (send_autoresponse)
+			// [Ratany:] excempt a particular resident from being sent
+			// autoresponses, according to rules [/Ratany]
+			if (send_autoresponse && xantispam_check(from_id.asString(), "&-IMSendNoAutoresponses", name))
 			{
 				// if there is not a panel for this conversation (i.e. it is a new IM conversation
 				// initiated by the other party) then...

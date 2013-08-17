@@ -2668,11 +2668,25 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	// # &-StatusFriendIsOnline
 	// # &-IMSendNoAutoresponses
 
-	bool hasrule = xantispam_transparentlookup(whitecache, request, true);
-	if(!hasrule)
+	static bool cache_only = FALSE;
+
+	bool hasrule;
+	// Transparent lookups do file lookups when a rule isn't found in the cache
+	// There isn't too much point in repeating file lookups for rules that
+	// aren't there anyway, and it can become a bad idea performance wise.
+	//
+	// The disadvantage of doing transpartent lookup only once is that the rules
+	// can be dropped from the cache when it flows over.  This may yield
+	// apparently inconsistent behaviour.  I'd rather crank the cache capacity
+	// up if that happens.
+	if(cache_only)
 	{
-		// this at least prefills the cache
-		llinfos << "rule found" << llendl;
+		hasrule = xantispam_cachelookup(whitecache, request);
+	}
+	else
+	{
+		hasrule = xantispam_transparentlookup(whitecache, request, true);
+		cache_only = true;
 	}
 
 	if(!request->type.find("&-ExecFriendIsOnline!") || !request->type.find("&-ExecFriendIsOffline!") || !request->type.find("&-ExecOnEachIM!") || !request->type.find("&-ExecOnEachGS!") || !request->type.find("&-ExecOnNewIMSession!") || !request->type.find("&-ExecOnNewGRSession!") || !request->type.find("&-IMLogHistoryExternal!"))

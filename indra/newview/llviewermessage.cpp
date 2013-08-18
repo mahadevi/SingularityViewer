@@ -2178,26 +2178,24 @@ static std::string xantispam_get_timestamp(void)
 //
 static void xantispam_make_listheader(const std::string& filename)
 {
-	LLFILE *f = LLFile::fopen(filename, "r");
-	if(f)
+	if(LLFile::isfile(filename) || LLFile::isdir(filename))
 	{
-		fclose(f);
+		// what about links?
+		return;
 	}
-	else
-	{
-		f = LLFile::fopen(filename, "a");
-		if(f) {
-			const std::string header = "# " + filename + "\n# created " + xantispam_get_timestamp() +  "\n#\n# Format for rules:\n# <UUID>:<type>[[timestamp]][# comment]\n#\n# The colon is a wildcard when it is not in place of a seperator.\n#\n";
-			if(fwrite(header.c_str(), header.length(), 1, f) != 1)
+
+	LLFILE *f = LLFile::fopen(filename, "a");
+	if(f) {
+		const std::string header = "# " + filename + "\n# created " + xantispam_get_timestamp() +  "\n#\n# Format for rules:\n# <UUID>:<type>[[timestamp]][# comment]\n#\n# The colon is a wildcard when it is not in place of a seperator.\n#\n";
+		if(fwrite(header.c_str(), header.length(), 1, f) != 1)
+		{
+			llwarns << "fwrite() failed to append header to " << filename << llendl;
+			if(ferror(f))
 			{
-				llwarns << "fwrite() failed to append header to " << filename << llendl;
-				if(ferror(f))
-				{
-					clearerr(f);
-				}
+				clearerr(f);
 			}
-			fclose(f);
 		}
+		fclose(f);
 	}
 }
 

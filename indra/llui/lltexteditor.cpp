@@ -67,6 +67,17 @@
 #include "llmenugl.h"
 #include "../newview/lgghunspell_wrapper.h"
 
+// [Ratany]
+#include "llnotificationsutil.h"
+#include "../newview/llexternaleditor.h"
+#include <string>
+#include <fstream>
+#include <streambuf>
+#include <boost/algorithm/string/replace.hpp>
+#include "apr_base64.h"
+// [/Ratany]
+
+
 // 
 // Globals
 //
@@ -246,7 +257,7 @@ private:
 
 ///////////////////////////////////////////////////////////////////
 
-LLTextEditor::LLTextEditor(	
+LLTextEditor::LLTextEditor(
 	const std::string& name, 
 	const LLRect& rect, 
 	S32 max_length,						// In bytes
@@ -359,6 +370,13 @@ LLTextEditor::LLTextEditor(
 	menu->addChild(new LLMenuItemCallGL("Delete", context_delete, NULL, this));
 	menu->addChild(new LLMenuItemCallGL("Select All", context_selectall, NULL, this));
 	menu->addSeparator();
+	// [Ratany:] putting this here so it's always available
+	menu->addChild(new LLMenuItemCallGL("Save contents and Edit ...", context_saveandedit, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("Replace contents from File ...", context_loadfile, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("base64 decode, save and Edit ...", context_base64_save, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("base64 encode, from File ...", context_base64_load, NULL, this));
+	// [/Ratany]
+	menu->addSeparator();
 	menu->setCanTearOff(FALSE);
 	menu->setVisible(FALSE);
 	mPopupMenuHandle = menu->getHandle();
@@ -384,6 +402,152 @@ void LLTextEditor::context_copy(void* data)
 	LLTextEditor* line = (LLTextEditor*)data;
 	if(line)line->copy();
 }
+
+
+// [Ratany]
+void LLTextEditor::context_saveandedit(void *data)
+{
+	LLUUID uuid = LLUUID::generateNewID();
+	std::string filename;
+	filename = "singularity-edit-" + uuid.asString() + ".txt";
+
+	AIFilePicker *filepicker = AIFilePicker::create();
+	filepicker->open(filename, FFSAVE_ALL, "", "savefile");
+	filepicker->run(boost::bind(&LLTextEditor::context_saveandedit_picked, data, filepicker, false));
+}
+
+void LLTextEditor::context_base64_save(void *data)
+{
+	LLUUID uuid = LLUUID::generateNewID();
+	std::string filename;
+	filename = "singularity-edit-" + uuid.asString() + ".txt";
+
+	AIFilePicker *filepicker = AIFilePicker::create();
+	filepicker->open(filename, FFSAVE_ALL, "", "savefile");
+	filepicker->run(boost::bind(&LLTextEditor::context_saveandedit_picked, data, filepicker, true));
+}
+
+void LLTextEditor::context_saveandedit_picked(void *data, AIFilePicker* filepicker, bool decode_base64)
+{
+	if (!filepicker->hasFilename())
+	{
+		return;
+	}
+
+	std::string filename = filepicker->getFilename();
+
+	// I'm lazy here
+	if(LLFile::isfile(filename) || LLFile::isdir(filename))
+	{
+		// what about links?
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", filename + " already exists, please chose a different file name"));
+		return;
+	}
+
+	LLFILE *f = LLFile::fopen(filename, "a"); // better than overwriting
+	if(f)
+	{
+		LLTextEditor *line = (LLTextEditor *)data;
+		std::string content = line->getText();
+		if(decode_base64)
+		{
+			char *decoded = new char[apr_base64_decode_len(content.c_str())];
+			apr_base64_decode(decoded, content.c_str());
+			content.assign(decoded);
+			delete[] decoded;
+		}
+
+		// Could do replacement --- apparently four bytes are used which
+		// would make an utf-8 character.  Putting in a placeholder like
+		// "[embedded item]" might cause unexpected truncation to max length
+		// when loading the file after editing it, so I just leave it as is.
+		// boost::algorithm::replace_all(content, "\xf4", "[embedded item]");
+		// boost::algorithm::replace_all(content, "\x80", "*");
+		if(!fputs(content.c_str(), f))
+		{
+			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Error writing to " + filename));
+			if(ferror(f))
+			{
+				clearerr(f);
+			}
+			fclose(f);
+			return;
+		}
+		fclose(f);
+
+		LLExternalEditor e;
+		e.setCommand(gSavedSettings.getString("ExternalEditor"));
+		e.run(filename);
+	}
+}
+
+
+void LLTextEditor::context_loadfile(void *data)
+{
+	AIFilePicker *filepicker = AIFilePicker::create();
+	filepicker->open(FFLOAD_ALL, "", "openfile", false);
+	filepicker->run(boost::bind(&LLTextEditor::context_loadfile_picked, data, filepicker, false));
+}
+
+void LLTextEditor::context_base64_load(void *data)
+{
+	AIFilePicker *filepicker = AIFilePicker::create();
+	filepicker->open(FFLOAD_ALL, "", "openfile", false);
+	filepicker->run(boost::bind(&LLTextEditor::context_loadfile_picked, data, filepicker, true));
+}
+
+void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker, bool encode_base64)
+{
+	if (!filepicker->hasFilename())
+	{
+		return;
+	}
+
+	std::string filename = filepicker->getFilename();
+	std::string content;
+	LLTextEditor *line = (LLTextEditor *)data;
+	content.reserve(line->mMaxTextByteLength);
+	LLFILE *f = LLFile::fopen(filename, "r");
+	if(f)
+	{
+		int c;
+		std::size_t offset = 0;
+		while(((c = fgetc(f)) != EOF) && (offset < line->mMaxTextByteLength))
+		{
+			content.push_back(c);
+			offset++;
+		}
+		if(ferror(f))
+		{
+			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Error reading " + filename + "."));
+			clearerr(f);
+		}
+		else
+		{
+			if(c != EOF)
+			{
+				LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the content from the file, hence the input will appear truncated here."));
+			}
+		}
+		fclose(f);
+	}
+
+	if(encode_base64)
+	{
+		int len = apr_base64_encode_len(content.length());
+		if(len > line->mMaxTextByteLength)
+		{
+			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the encoded content from the file, hence the data will appear truncated here."));
+		}
+		char *encoded = new char[len];
+		apr_base64_encode(encoded, content.c_str(), content.length());
+		content.assign(encoded);
+		delete[] encoded;
+	}
+
+	line->setText(content);
+}
+// [/Ratany]
 
 
 void LLTextEditor::spell_correct(void* data)

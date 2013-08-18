@@ -47,6 +47,12 @@
 #include "llpreeditor.h"
 #include "llmenugl.h"
 
+#include "../llplugin/llpluginclassmedia.h"
+#include "../llplugin/llpluginclassbasic.h"
+#include "../newview/llviewerpluginmanager.h"
+#include "../newview/statemachine/aifilepicker.h"
+
+
 class LLFontGL;
 class LLScrollbar;
 class LLViewBorder;
@@ -158,6 +164,12 @@ public:
 	static void context_paste(void* data);
 	static void context_delete(void* data);
 	static void context_selectall(void* data);
+	static void context_saveandedit(void *data);
+	static void context_base64_save(void *data);
+	static void context_saveandedit_picked(void *data, AIFilePicker* filepicker, bool decode_base64);
+	static void context_loadfile(void *data);
+	static void context_base64_load(void *data);
+	static void context_loadfile_picked(void *data, AIFilePicker* filepicker, bool encode_base64);
 	static void spell_correct(void* data);
 	static void spell_add(void* data);
 	static void spell_show(void* data);
@@ -215,6 +227,7 @@ public:
 								 const LLColor3& func_color);
 	LLKeywords::keyword_iterator_t keywordsBegin()	{ return mKeywords.begin(); }
 	LLKeywords::keyword_iterator_t keywordsEnd()	{ return mKeywords.end(); }
+
 
 	// Color support
 	void 			setCursorColor(const LLColor4& c)			{ mCursorColor = c; }
@@ -503,6 +516,7 @@ private:
 	//
 	// Data
 	//
+
 	LLKeywords		mKeywords;
 	static LLColor4 mLinkColor;
 

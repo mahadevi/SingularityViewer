@@ -324,7 +324,7 @@ bool LLAlertDialog::show()
 	startModal();
 	gFloaterView->adjustToFitScreen(this, FALSE);
 	open();	/* Flawfinder: ignore */
- 	setFocus(gSavedSettings.getBOOL("NotifyRecievesFocus"));
+	setFocus(gSavedSettings.getBOOL("NotifyRecievesFocus"));
 	if (mLineEditor)
 	{
 		mLineEditor->setFocus(TRUE);

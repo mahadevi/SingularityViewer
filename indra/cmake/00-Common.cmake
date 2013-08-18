@@ -121,6 +121,7 @@ if (LINUX)
 #      -lgcov
 #       -fprofile-dir=/home/lee/tmp
 #       -fprofile-generate
+	-Wno-strict-aliasing
       )
 
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -D_FORTIFY_SOURCE=2 ")
@@ -132,6 +133,11 @@ if (LINUX)
 
   if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     find_program(GXX g++)
+# uncomment those to clear stuff cached by cmake --- needed when
+# switching to ccache
+#set(GXX /bin/ccache)
+#set(CXX /bin/ccache)
+#set(CMAKE_CXX_COMPILER /bin/ccache)
     mark_as_advanced(GXX)
 
     if (GXX)

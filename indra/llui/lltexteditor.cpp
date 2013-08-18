@@ -70,10 +70,7 @@
 // [Ratany]
 #include "llnotificationsutil.h"
 #include "../newview/llexternaleditor.h"
-#include <string>
-#include <fstream>
-#include <streambuf>
-#include <boost/algorithm/string/replace.hpp>
+//#include <boost/algorithm/string/replace.hpp>
 #include "apr_base64.h"
 // [/Ratany]
 

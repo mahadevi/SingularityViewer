@@ -122,8 +122,9 @@ if (LINUX)
 #       -fprofile-dir=/home/lee/tmp
 #       -fprofile-generate
 	-Wno-strict-aliasing
-	-ftree-loop-linear
+#	-ftree-loop-linear // don't
 	-ftree-loop-im
+#	-ftree-parallelize-loops=4 // compiler segfault
 	-funswitch-loops
       )
 

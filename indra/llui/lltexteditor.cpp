@@ -70,8 +70,12 @@
 // [Ratany]
 #include "llnotificationsutil.h"
 #include "../newview/llexternaleditor.h"
-//#include <boost/algorithm/string/replace.hpp>
 #include "apr_base64.h"
+#ifdef LL_STANDALONE
+# include <zlib.h>
+#else
+# include "zlib/zlib.h"
+#endif
 // [/Ratany]
 
 
@@ -370,8 +374,8 @@ LLTextEditor::LLTextEditor(
 	// [Ratany:] putting this here so it's always available
 	menu->addChild(new LLMenuItemCallGL("Save contents and Edit ...", context_saveandedit, NULL, this));
 	menu->addChild(new LLMenuItemCallGL("Replace contents from File ...", context_loadfile, NULL, this));
-	menu->addChild(new LLMenuItemCallGL("base64 decode, save and Edit ...", context_base64_save, NULL, this));
-	menu->addChild(new LLMenuItemCallGL("base64 encode, from File ...", context_base64_load, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("Base64 decode, uncompress, save and Edit ...", context_base64_save, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("Load a file, compress, base64 encode, replace contents with ...", context_base64_load, NULL, this));
 	// [/Ratany]
 	menu->addSeparator();
 	menu->setCanTearOff(FALSE);
@@ -437,45 +441,67 @@ void LLTextEditor::context_saveandedit_picked(void *data, AIFilePicker* filepick
 	if(LLFile::isfile(filename) || LLFile::isdir(filename))
 	{
 		// what about links?
-		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", filename + " already exists, please chose a different file name"));
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", filename + " already exists, please chose a different file name."));
 		return;
 	}
 
-	LLFILE *f = LLFile::fopen(filename, "a"); // better than overwriting
-	if(f)
+	LLFILE *f = LLFile::fopen(filename, (decode_base64 ? "wb" : "w"));
+	if(!f)
 	{
-		LLTextEditor *line = (LLTextEditor *)data;
-		std::string content = line->getText();
-		if(decode_base64)
-		{
-			char *decoded = new char[apr_base64_decode_len(content.c_str())];
-			apr_base64_decode(decoded, content.c_str());
-			content.assign(decoded);
-			delete[] decoded;
-		}
-
-		// Could do replacement --- apparently four bytes are used which
-		// would make an utf-8 character.  Putting in a placeholder like
-		// "[embedded item]" might cause unexpected truncation to max length
-		// when loading the file after editing it, so I just leave it as is.
-		// boost::algorithm::replace_all(content, "\xf4", "[embedded item]");
-		// boost::algorithm::replace_all(content, "\x80", "*");
-		if(!fputs(content.c_str(), f))
-		{
-			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Error writing to " + filename));
-			if(ferror(f))
-			{
-				clearerr(f);
-			}
-			fclose(f);
-			return;
-		}
-		fclose(f);
-
-		LLExternalEditor e;
-		e.setCommand(gSavedSettings.getString("ExternalEditor"));
-		e.run(filename);
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Cannot open " + filename + " for writing!"));
+		return;
 	}
+
+	LLTextEditor *line = (LLTextEditor *)data;
+	std::string content = line->getText();
+	int status = 1; // hmm ...
+
+	if(decode_base64 && !content.empty())
+	{
+		// use compression transparently
+		// first decode, then uncompress --- wielding data types around a little
+		// This doesn't exactly work with std::string for the files may contain
+		// '\0'.
+		Bytef *decoded = new Bytef[apr_base64_decode_len(content.c_str())];
+		uLongf srclen = apr_base64_decode((char *)decoded, content.c_str());
+
+		// uncompressed size is unknown, assume hilarious compression rates
+		uLongf dlen = line->mMaxTextByteLength << 4;
+		Bytef *decompr = new Bytef[dlen];
+		status = uncompress(decompr, &dlen, decoded, srclen);
+		// dlen is now actual length
+
+		if(status == Z_OK)
+		{
+			status = (fwrite(decompr, dlen, 1, f) != 1);
+		}
+		else
+		{
+			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Decompression failed, proceeding with whatever data the attempt to undecode produced."));
+			llinfos << "uncompress() returned " << status << llendl;
+			// at least write the decoded data
+			status = (fwrite(decoded, apr_base64_decode_len(content.c_str()), 1, f) != 1);
+		}
+
+		delete[] decoded;
+		delete[] decompr;
+	}
+	else
+	{
+		// assuming that this is text, though items may be embedded
+		status = (fputs(content.c_str(), f) == EOF);
+	}
+
+	if(status)
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Writing to " + filename + " failed."));
+		clearerr(f);
+	}
+	fclose(f);
+
+	LLExternalEditor e;
+	e.setCommand(gSavedSettings.getString("ExternalEditor"));
+	e.run(filename);
 }
 
 
@@ -523,14 +549,40 @@ void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker,
 		{
 			if(c != EOF)
 			{
-				LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the content from the file, hence the input will appear truncated here."));
+				LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the content from the file, hence the input will appear truncated here. However, when base64 encoding is used, the input is also compressed and may be small enough."));
 			}
 		}
 		fclose(f);
 	}
 
-	if(encode_base64)
+	if(encode_base64 && !content.empty())
 	{
+		// use compression transparently
+		// first compress, then encode as base64
+		uLongf clen = compressBound(content.length());
+		Bytef *compressed = new Bytef[clen];
+		int status = compress2(compressed, &clen, (const Bytef *)content.c_str(), (uLong)content.length(), Z_BEST_COMPRESSION);
+		// clen is now actual size
+
+		if(status == Z_OK)
+		{
+			content.clear();
+			content.reserve(clen);
+			Bytef *start = compressed;
+			Bytef *end = compressed + clen;
+			while(start < end)
+			{
+				content.push_back((char)(*start));
+				start++;
+			}
+		}
+		else
+		{
+			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Compression failed, encoding uncompressed!"));
+			llinfos << "compress returned " << status << llendl;
+		}
+		delete[] compressed;
+
 		int len = apr_base64_encode_len(content.length());
 		if(len > line->mMaxTextByteLength)
 		{
@@ -542,7 +594,15 @@ void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker,
 		delete[] encoded;
 	}
 
-	line->setText(content);
+	if(content.empty())
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Content is not replaced because the replacement does not contain content."));
+	}
+	else
+	{
+		// truncates anyway when it's too long
+		line->setText(content);
+	}
 }
 // [/Ratany]
 

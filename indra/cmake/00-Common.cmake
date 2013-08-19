@@ -122,6 +122,9 @@ if (LINUX)
 #       -fprofile-dir=/home/lee/tmp
 #       -fprofile-generate
 	-Wno-strict-aliasing
+	-ftree-loop-linear
+	-ftree-loop-im
+	-funswitch-loops
       )
 
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -D_FORTIFY_SOURCE=2 ")

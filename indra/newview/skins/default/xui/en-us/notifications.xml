@@ -9860,14 +9860,6 @@ XAntiSpam: missing executable or empty command in rule [RULE]
 
   <notification
    icon="notify_caution_icon.tga"
-   name="xantispamNflood"
-   type="notifytip">
-XAntiSpam: Too many queries ([REQUESTS]) open; this info is disabled while the flooding continues.
-  </notification>
-
-
-  <notification
-   icon="notify_caution_icon.tga"
    name="xantispamNtimeout"
    type="notifytip">
 XAntiSpam: Incoming SPAM ([CALLS]) exceeds threshold for the last ten seconds ([MAXCALLS]), blocking without processing. This info is disabled while the flooding continues.

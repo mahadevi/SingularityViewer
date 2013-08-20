@@ -3118,14 +3118,6 @@ XAntiSpam: fehlende Programmangabe oder leerer Befehl in [RULE]
 
   <notification
    icon="notify_caution_icon.tga"
-   name="xantispamNflood"
-   type="notifytip">
-XAntiSpam: Zu viele Rückfragen ([REQUESTS]) offen; diese Info ist abgeschaltet solange die Überflutung andauert.
-  </notification>
-
-
-  <notification
-   icon="notify_caution_icon.tga"
    name="xantispamNtimeout"
    type="notifytip">
 XAntiSpam: Eingehender SPAM ([CALLS]) überschreitet den Schwellenwert für die letzten zehn Sekunden ([MAXCALLS]), blockiere ohne Bearbeitung. Diese Info ist abgeschaltet, solange die Überflutung andauert.

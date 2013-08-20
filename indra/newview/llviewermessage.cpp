@@ -2793,7 +2793,7 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 		return false;
 	}
 
-	llinfos << "XA-RQ-log: [" << fromstr << "]{" << filtertype << "}'" << from_name << "', backgnd: " << (request_is_backgnd ? "Yes" : "No") << llendl;
+	// llinfos << "XA-RQ-log: [" << fromstr << "]{" << filtertype << "}'" << from_name << "', backgnd: " << (request_is_backgnd ? "Yes" : "No") << llendl;
 
 	// blacklisting yourself can be confusing + handle special cases here
 	if(!request_is_silent && !request_is_backgnd && (fromstr == gAgentID.asString()))

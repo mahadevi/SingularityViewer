@@ -192,7 +192,7 @@ void LLViewerParcelMedia::update(LLParcel* parcel)
 // static
 void LLViewerParcelMedia::play(LLParcel* parcel, bool filter)
 {
-	lldebugs << "LLViewerParcelMedia::play" << llendl;
+	// lldebugs << "LLViewerParcelMedia::play" << llendl;
 
 	if (!parcel) return;
 
@@ -202,7 +202,12 @@ void LLViewerParcelMedia::play(LLParcel* parcel, bool filter)
 	std::string media_url = parcel->getMediaURL();
 	LLStringUtil::trim(media_url);
 
-	if (!media_url.empty() && gSavedSettings.getBOOL("MediaEnableFilter") && (filter || !allowedMedia(media_url)))
+	if(!allowedMedia(media_url))
+	{
+		return;
+	}
+
+	if(filter)
 	{
 		// If filtering is needed or in case media_url just changed
 		// to something we did not yet approve.
@@ -695,9 +700,17 @@ void LLViewerParcelMediaNavigationObserver::onNavigateComplete( const EventType&
 
 void LLViewerParcelMedia::playStreamingMusic(LLParcel* parcel, bool filter)
 {
+	if (!parcel) return;
+
 	std::string music_url = parcel->getMusicURL();
 	LLStringUtil::trim(music_url);
-	if (!music_url.empty() && gSavedSettings.getBOOL("MediaEnableFilter") && (filter || !allowedMedia(music_url)))
+
+	if(!allowedMedia(music_url))
+	{
+		return;
+	}
+
+	if(filter)
 	{
 		// If filtering is needed or in case music_url just changed
 		// to something we did not yet approve.
@@ -705,19 +718,11 @@ void LLViewerParcelMedia::playStreamingMusic(LLParcel* parcel, bool filter)
 	}
 	else if (gAudiop)
 	{
-		LLStringUtil::trim(music_url);
 		LLStreamingAudioInterface *stream = gAudiop->getStreamingAudioImpl();
 		if(stream && stream->supportsAdjustableBufferSizes())
 			stream->setBufferSizes(gSavedSettings.getU32("SHFMODExStreamBufferSize"),gSavedSettings.getU32("SHFMODExDecodeBufferSize"));
 		gAudiop->startInternetStream(music_url);
-		if (music_url.empty())
-		{
-			LLOverlayBar::audioFilterStop();
-		}
-		else
-		{
-			LLOverlayBar::audioFilterPlay();
-		}
+		LLOverlayBar::audioFilterPlay();
 	}
 }
 
@@ -735,7 +740,18 @@ extern bool xantispam_check(const std::string&, const std::string&, const std::s
 
 bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 {
+	if(!gSavedSettings.getBOOL("MediaEnableFilter"))
+	{
+		return true;
+	}
+
 	LLStringUtil::trim(media_url);
+
+	if(media_url.empty())
+	{
+		return false;
+	}
+
 	std::string domain = extractDomain(media_url);
 	LLHost host;
 	host.setHostByName(domain);
@@ -790,7 +806,8 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 				sDeniedMedia.erase(ip);
 			}
 		}
-		return xantispam_denied;
+		// SLFloaterMediaFilter::getInstance()->setDirty();
+		return !xantispam_denied;
 	}
 
 	if (sAllowedMedia.count(domain) || sAllowedMedia.count(ip))
@@ -820,6 +837,13 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 
 void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 {
+	if (!parcel) return;
+
+	if(!gSavedSettings.getBOOL("MediaEnableFilter"))
+	{
+		return;
+	}
+
 	std::string media_action = "ignore";
 	std::string media_url;
 	std::string domain;
@@ -844,9 +868,6 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 
 	domain = extractDomain(media_url);
 
-// [Ratany:] There seems to be a bug causing this function to be
-// called in a loop or something.  Returning when a query is inserted
-// has hidden the bug. [/Ratany]
 	if (sMediaQueries.count(domain) > 0)
 	{
 		sIsUserAction = false;
@@ -909,6 +930,7 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 			}
 			media_action = "allow";
 		}
+		// SLFloaterMediaFilter::getInstance()->setDirty();
 	}
 	else
 	{

@@ -234,21 +234,21 @@ You may choose to allow or deny the corresponding domain or in-world scripted ob
    icon="alert.tga"
    name="MediaListed"
    type="alert">
-Media/audio URLs for [DOMAIN] now [LISTED]
+Media/audio URLs for [DOMAIN] now [LISTED] for media filter.
   </notification>
 
   <notification
    icon="notifytip.tga"
    name="MediaBlocked"
    type="notifytip">
-Media/audio URL blocked for [DOMAIN]
+Media/audio URL blocked for [DOMAIN] by media filter.
   </notification>
 
   <notification
    icon="alertmodal.tga"
    name="MediaFiltersCleared"
    type="alertmodal">
-The media filters have been cleared
+The media filters have been cleared.
   </notification>
 
   <notification

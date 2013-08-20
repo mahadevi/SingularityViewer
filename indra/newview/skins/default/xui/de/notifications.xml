@@ -95,9 +95,9 @@ It contains an archetype of type [ARCHETYPENAME]. Please select the correct type
 	<button name="Whitelist" text="Immer erlauben"/>
    </form></notification>
 
-  <notification name="MediaListed">Media/audio URLs f&#xFC;r [DOMAIN] jetzt [LISTED]</notification>
+  <notification name="MediaListed">Media/audio URLs f&#xFC;r [DOMAIN] jetzt [LISTED] im Mediafilter</notification>
 
-  <notification name="MediaBlocked">Media/audio URL verweigern f&#xFC;r [DOMAIN]</notification>
+  <notification name="MediaBlocked">Media/audio URL verweigern f&#xFC;r [DOMAIN] durch Mediafilter</notification>
 
   <notification name="MediaFiltersCleared">Die Medienfilter sind gel&#xF6;scht worden</notification>
 

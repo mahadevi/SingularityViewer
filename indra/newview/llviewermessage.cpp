@@ -1722,13 +1722,14 @@ bool LLOfferInfo::inventory_offer_callback(const LLSD& notification, const LLSD&
 #define XANTISPAM_CLEARCACHE 5
 #define XANTISPAM_ENABLE     6
 #define XANTISPAM_DISABLE_QUERIES 7
+#define XANTISPAM_UNNOTIFY   8
 // these are for cache control in xantispam_check()
 #define XANTISPAM_ADDBLACK	     "XAAdd2Black:"
 #define XANTISPAM_ADDWHITE	     "XAAdd2White:"
 
 // path is configurable
-#define XANTISPAM_WHITELISTFILE	     "xantispam-whitelist.cfg"
-#define XANTISPAM_BLACKLISTFILE	     "xantispam-blacklist.cfg"
+#define XANTISPAM_WHITELISTFILE	     "xantispam-whitelist.org"
+#define XANTISPAM_BLACKLISTFILE	     "xantispam-blacklist.org"
 
 // Do not let the caches grow indefinitely.  Caches are handled FILO,
 // with most recent entries at the end.	 Most recent entries are
@@ -1781,7 +1782,7 @@ typedef struct
 } xantispam_request;
 
 
-static xantispam_blackwhite xantispam_notify(const xantispam_request *, const int, int *, const std::string&);
+static xantispam_blackwhite xantispam_notify(const xantispam_request *, const int, const std::string&);
 bool xantispam_check(const std::string&, const std::string&, const std::string&);
 void xantispam_buttons(const int);
 
@@ -1810,79 +1811,64 @@ static int xantispam_read_line(LLFILE *src, std::string& line, std::size_t max)
 //
 // Returns false on success.
 //
-static bool xantispam_line2request(const std::string& line, xantispam_request *request)
+// First a helper function, returning true on error:
+static bool xantispam_syntaxofline(const std::string& line)
 {
-	LL_DEBUGS("xantispam") << "line: " << line << LL_ENDL;
 	if(line.empty())
 	{
 		return true;
 	}
-	if(line.at(0) == '#')
+
+	if(line.find(':') != std::string::npos)
+	{
+		if(line.find_first_not_of(":") != std::string::npos)
+		{
+			llinfos << "rule syntax error: wildcards are not allowed amongst other characters in '" << line << "'" << llendl;
+			return true;
+		}
+	}
+	return false;
+}
+//
+// this actually reads an emacs org-mode table, skipping lines
+// starting with "|-" and not with '|', removing commentary
+//
+static bool xantispam_line2request(std::string& line, xantispam_request *request)
+{
+	// ignore comments
+	if(line.empty())
+	{
+		LL_DEBUGS("xantispam") << "skipping empty line: " << line << LL_ENDL;
+		return true;
+	}
+	if((line.at(0) != '|') || !line.find("|-"))
 	{
 		LL_DEBUGS("xantispam") << "skipping comment: " << line << LL_ENDL;
 		return true;
 	}
 
-	std::size_t mark = line.find(':');
-	if(((mark == 36) || (mark == 0)) && (line.length() > 2))
+	// truncate inlined comments
+	std::size_t comment = line.find_first_of("#[");
+	if(comment != std::string::npos) line = line.substr(0, comment - 1);
+
+	// strip whitespace
+	line.erase(std::remove_if(line.begin(), line.end(), isspace), line.end());
+
+	// split the line
+	std::vector<std::string> elements;
+	boost::algorithm::split(elements, line, boost::algorithm::is_any_of("|"));
+
+	// transform into an xantispam_request
+	if(elements.size() > 2)
 	{
-		if(mark) // it's not a wildcard
-		{
-			request->from = line.substr(0, mark);
-			if(request->from.find_first_not_of("abcdef-0123456789") != std::string::npos)
-			{
-				llinfos << "not forming a rule with illegal characters in UUID from: '" << line << "'" << llendl;
-				return true;
-			}
-		}
-		else
-		{
-			request->from = ":";
-			// set mark on seperator
-			mark++;
-			mark = line.find(':', mark);
-			if(line.at(mark) != ':')
-			{
-				llinfos << "not forming a rule from a line with a missing seperator or missing UUID: '" << line << "'" << llendl;
-				return true;
-			}
-		}
-		mark++;
-		std::size_t comment = line.find('#', mark);
-		if(comment == std::string::npos)
-		{
-			comment = line.length();
-		}
-		std::size_t stamp = line.find('[', mark);
-		if(stamp == std::string::npos)
-		{
-			stamp = line.length();
-		}
-		if(stamp < comment)
-		{
-			comment = stamp;
-		}
-
-		request->type = line.substr(mark, comment - mark);
-		// strip whitespace
-		request->type.erase(std::remove_if(request->type.begin(), request->type.end(), isspace), request->type.end());
-		if(request->type.empty() )
-		{
-			llinfos << "not forming an empty rule from: '" << line << "'" << llendl;
-			return true;
-		}
-
-		if((request->type.length() != 1) && (request->type.rfind(':') != std::string::npos))
-		{
-			llinfos << "not forming a rule from a line with a wildcard amongst another character: '" << line << "'" << llendl;
-			return true;
-		}
-
-		LL_DEBUGS("xantispam") << "rule formed from line: '" << line << "' --> [" << request->from << "]{" << request->type << "}" << LL_ENDL;
-
-		return false;
+		// elements[0] is empty because lines start with '|'
+		request->from = elements[1];
+		request->type = elements[2];
+		// check syntax
+		LL_DEBUGS("xantispam") << "syntax check on: '" << line << "' --> [" << request->from << "]{" << request->type << "}" << LL_ENDL;
+		return (xantispam_syntaxofline(request->from) || xantispam_syntaxofline(request->type));
 	}
-	llinfos << "syntax error: '" << line << "'" << llendl;
+
 	return true;
 }
 
@@ -2219,7 +2205,7 @@ static void xantispam_make_listentry(const bool type, const xantispam_request *d
 	// from files, it doesn't matter.
 	if(xantispam_compare_requests(&lastrq, data))
 	{
-		llinfos << "rule entry denied: previous rule for " << (lasttype ? XANTISPAM_WHITELISTFILE : XANTISPAM_BLACKLISTFILE) << " matches current rule: [" << lastrq.from << "]{" << lastrq.type << "}" << llendl;
+		LL_DEBUGS("xantispam") << "rule entry denied: previous rule for " << (lasttype ? XANTISPAM_WHITELISTFILE : XANTISPAM_BLACKLISTFILE) << " matches current rule: [" << lastrq.from << "]{" << lastrq.type << "}" << LL_ENDL;
 		return;
 	}
 	lastrq.from = data->from;
@@ -2238,8 +2224,7 @@ static void xantispam_make_listentry(const bool type, const xantispam_request *d
 		LLFILE *f = LLFile::fopen(whichlist, "a");
 		if(f)
 		{
-			// this tab-setting is rather stupid
-			std::string listentry(data->from + ": " + data->type + (data->type.length() > 17 ? "\t" : "\t\t") + xantispam_get_timestamp() + " # " + from_name + "\n");
+			std::string listentry("| " + data->from + " | " + data->type + " | " + xantispam_get_timestamp() + " | " + from_name + " |\n");
 			if(fwrite(listentry.c_str(), listentry.length(), 1, f) != 1)
 			{
 				llwarns << "fwrite() failed to write rule to file '" << listentry << "' to " << whichlist << llendl;
@@ -2297,7 +2282,7 @@ static int xantispam_split_special(const std::string special, xantispam_request 
 // callback for xantispam_check() --- act upon buttons clicked by the
 // user when they received a notification
 //
-static void xantispam_notify_cb(const LLSD& notification, const LLSD& response, const xantispam_request data, int *depth, const std::string from_name)
+static void xantispam_notify_cb(const LLSD& notification, const LLSD& response, const xantispam_request data, const std::string from_name)
 {
 	int action = LLNotificationsUtil::getSelectedOption(notification, response);
 
@@ -2308,26 +2293,23 @@ static void xantispam_notify_cb(const LLSD& notification, const LLSD& response, 
 		xantispam_make_listentry(false, &data, from_name);
 		// save another file lookup by adding request to cache right away
 		xantispam_check(gAgentID.asString(), XANTISPAM_ADDBLACK + data.from + ":" + data.type, "");
-		--(*depth);
 		break;
 	case XANTISPAM_PERMWHITE:
 		// Permanently Whitelist
 		xantispam_make_listentry(true, &data, from_name);
 		// save another file lookup by adding request to cache right away
 		xantispam_check(gAgentID.asString(), XANTISPAM_ADDWHITE + data.from + ":" + data.type, "");
-		--(*depth);
 		break;
 	case XANTISPAM_NOP:
 		// do nothing
-		--(*depth);
 		break;
 	case XANTISPAM_TEMPBLACK:
 		// Temporarily Blacklist
-		xantispam_notify(&data, XANTISPAM_TEMPBLACK, depth, from_name);
+		xantispam_notify(&data, XANTISPAM_TEMPBLACK, from_name);
 		break;
 	case XANTISPAM_TEMPWHITE:
 		// Temporarily Whitelist
-		xantispam_notify(&data, XANTISPAM_TEMPWHITE, depth, from_name);
+		xantispam_notify(&data, XANTISPAM_TEMPWHITE, from_name);
 		break;
 	case XANTISPAM_ENABLE:
 		xantispam_buttons(XANTISPAM_ENABLE);
@@ -2338,10 +2320,11 @@ static void xantispam_notify_cb(const LLSD& notification, const LLSD& response, 
 	default:
 		llwarns << "unknown case" << llendl;
 	}
+	xantispam_notify(&data, XANTISPAM_UNNOTIFY, from_name);
 }
 
 
-static xantispam_blackwhite xantispam_notify(const xantispam_request *data, const int action, int *depth, const std::string& from_name)
+static xantispam_blackwhite xantispam_notify(const xantispam_request *data, const int action, const std::string& from_name)
 {
 	// cache these for better performance
 	static LLCachedControl<bool> use_notify(gSavedSettings, "AntiSpamNotify");
@@ -2352,6 +2335,9 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 	// volatile request caches here, filled from answers to user requests
 	static std::vector<xantispam_request> whitecache;
 	static std::vector<xantispam_request> blackcache;
+
+	// keep track of what has been queried about to avoid duplicate queries
+	static std::vector<xantispam_request> notificationcache;
 
 	xantispam_blackwhite ret;
 	ret.isblacklisted = ret.iswhitelisted = false;
@@ -2373,27 +2359,41 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 		}
 		if(!ret.iswhitelisted && use_queries)
 		{
-			// ask when undecided
-
-			// Depending on what is enabled, different notifications are
-			// used.  First figure out which one to use.
-			std::string whichnotification("xantispam");
-			if(use_volatile)
+			if(xantispam_cachelookup(notificationcache, data))
 			{
-				whichnotification += "Volatile";
-			}
-			if(use_persistent)
-			{
-				whichnotification += "Persistent";
-			}
+				// ask when undecided
 
-			(*depth)++;
-			LL_DEBUGS("xantispam") << "adding notification" << LL_ENDL;
-			LLSD args;
-			args["FROM"] = data->from + " (" + from_name + ")";
-			args["TYPE"] = data->type;
-			LLNotificationsUtil::add(whichnotification, args, LLSD(), boost::bind(&xantispam_notify_cb, _1, _2, *data, depth, from_name));
-			LL_DEBUGS("xantispam") << "done adding notification" << LL_ENDL;
+				// Depending on what is enabled, different notifications are
+				// used.  First figure out which one to use.
+				std::string whichnotification("xantispam");
+				if(use_volatile)
+				{
+					whichnotification += "Volatile";
+				}
+				if(use_persistent)
+				{
+					whichnotification += "Persistent";
+				}
+
+				LL_DEBUGS("xantispam") << "adding notification" << LL_ENDL;
+				LLSD args;
+				args["FROM"] = data->from + " (" + from_name + ")";
+				args["TYPE"] = data->type;
+				LLNotificationsUtil::add(whichnotification, args, LLSD(), boost::bind(&xantispam_notify_cb, _1, _2, *data, from_name));
+				LL_DEBUGS("xantispam") << "done adding notification" << LL_ENDL;
+
+				// keep track of what was notified about
+				if(notificationcache.size() > XANTISPAM_CACHE_CAPACITY)
+				{
+					notificationcache.erase(notificationcache.begin(), notificationcache.begin() + XANTISPAM_CACHE_CAPACITY / XANTISPAM_THRESHOLD + 1);
+				}
+				notificationcache.push_back(*data);
+			}
+			else
+			{
+				// default to blacklist a repeated request
+				ret.isblacklisted = true;
+			}
 		}
 		break;
 	case XANTISPAM_TEMPWHITE:
@@ -2407,7 +2407,6 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 			whitecache.push_back(*data);
 		}
 		ret.iswhitelisted = true;
-		--(*depth);
 		break;
 	case XANTISPAM_TEMPBLACK:
 		// put request on temp blackcache unless already there
@@ -2420,12 +2419,15 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 			blackcache.push_back(*data);
 		}
 		ret.isblacklisted = true;
-		--(*depth);
 		break;
 	case XANTISPAM_CLEARCACHE:
 		if(use_volatile) {
+			llinfos << "clearing entries from volatile blackcache: " << blackcache.size() << llendl;
+			llinfos << "clearing entries from volatile whitecache: " << whitecache.size() << llendl;
+			llinfos << "clearing entries from notifications cache: " << notificationcache.size() << llendl;
 			whitecache.clear();
 			blackcache.clear();
+			notificationcache.clear();
 			if(use_notify)
 			{
 				LLSD args;
@@ -2433,6 +2435,20 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 				LLNotificationsUtil::add("xantispamNclrcache", args);
 			}
 		}
+		break;
+	case XANTISPAM_UNNOTIFY:
+	{
+		std::vector<xantispam_request>::iterator it = notificationcache.end();
+		while(it != notificationcache.begin() )
+		{
+			--it;
+			if(xantispam_compare_requests(&(*it), data))
+			{
+				notificationcache.erase(it);
+				LL_DEBUGS("xantispam") << "Request removed from notifications cache: [" << data->from << "]{" << data->type << "}" << LL_ENDL;
+			}
+		}
+	}
 	}
 	return ret;
 }
@@ -2444,14 +2460,14 @@ static xantispam_blackwhite xantispam_notify(const xantispam_request *data, cons
 static bool xantispam_callspersec(void)
 {
 	static LLCachedControl<U32> max_calls_per_10sec(gSavedSettings, "AntiSpamXtendedMaxCallsPer10Sec");
-	if(max_calls_per_10sec > 2000)
+	if(max_calls_per_10sec > 20000)
 	{
-		gSavedSettings.setU32("AntiSpamXtendedMaxCallsPer10Sec", static_cast<U32>(2000));
+		gSavedSettings.setU32("AntiSpamXtendedMaxCallsPer10Sec", static_cast<U32>(20000));
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "AntiSpamXtendedMaxCallsPer10Sec reset to maximum of 90."));
 	}
-	if(max_calls_per_10sec < 5)
+	if(max_calls_per_10sec < 150)
 	{
-		gSavedSettings.setU32("AntiSpamXtendedMaxCallsPer10Sec", static_cast<U32>(5));
+		gSavedSettings.setU32("AntiSpamXtendedMaxCallsPer10Sec", static_cast<U32>(150));
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "AntiSpamXtendedMaxCallsPer10Sec reset to minimum of 5."));
 	}
 	static time_t lastcall = (time_t)0;
@@ -2665,6 +2681,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	// # &-StatusFriendIsOffline
 	// # &-StatusFriendIsOnline
 	// # &-IMSendNoAutoresponses
+	// # &-DomainHandleMediaURLs
 
 	static bool cache_only = FALSE;
 
@@ -2884,23 +2901,6 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 	}
 
 	// prevent flooding
-	static int depth = 0;
-	static bool flood_stop_notification = false;
-	if(depth > XANTISPAM_MAXDEPTH)
-	{
-		if(!flood_stop_notification)
-		{
-			LLSD args;
-			args["REQUESTS"] = boost::lexical_cast<std::string>(depth);
-			LLNotificationsUtil::add("xantispamNflood", args);
-			flood_stop_notification = true;
-		}
-		return true;
-	}
-	// send new flood notifications only when flooding has fully ceased
-	if(!depth) {
-		flood_stop_notification = false;
-	}
 	if(xantispam_callspersec())
 	{
 		return true;
@@ -2969,7 +2969,7 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 	}
 
 	// either the voliatile caches or the user will decide this request
-	xantispam_blackwhite bw = xantispam_notify(&request, XANTISPAM_QUERYUSER, &depth, from_name);
+	xantispam_blackwhite bw = xantispam_notify(&request, XANTISPAM_QUERYUSER, from_name);
 
 	if(bw.isblacklisted) {
 		// notify about what happened
@@ -3036,8 +3036,7 @@ void xantispam_buttons(const int action)
 		break;
 	case XANTISPAM_CLEARCACHE_VOLATILE:
 	{
-		int dummy = 0;
-		xantispam_notify(&request, XANTISPAM_CLEARCACHE, &dummy, request.from);
+		xantispam_notify(&request, XANTISPAM_CLEARCACHE, request.from);
 	}
 		break;
 	case XANTISPAM_EDIT_BLACKLIST:
@@ -3122,6 +3121,7 @@ void xantispam_buttons(const int action)
 #undef XANTISPAM_TEMPBLACK
 #undef XANTISPAM_TEMPWHITE
 #undef XANTISPAM_THRESHOLD
+#undef XANTISPAM_UNNOTIFY
 #undef XANTISPAM_WHITELISTFILE
 
 

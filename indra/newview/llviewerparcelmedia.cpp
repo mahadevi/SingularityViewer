@@ -56,6 +56,9 @@
 #include "slfloatermediafilter.h"
 #include "llstreamingaudio.h"
 
+#include <boost/algorithm/string/replace.hpp>
+
+
 // Static Variables
 
 S32 LLViewerParcelMedia::sMediaParcelLocalID = 0;
@@ -727,6 +730,9 @@ void LLViewerParcelMedia::stopStreamingMusic()
 	}
 }
 
+
+extern bool xantispam_check(const std::string&, const std::string&, const std::string&);
+
 bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 {
 	LLStringUtil::trim(media_url);
@@ -734,10 +740,64 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 	LLHost host;
 	host.setHostByName(domain);
 	std::string ip = host.getIPString();
+
+	// for blocking particular ports, like below
+	// I wonder who wrote this filterstuff ...
+	std::string stripped_url(media_url);
+	boost::algorithm::replace_all(stripped_url, ":", ";");
+	// in case this ever uses IPv6:
+	std::string stripped_ip(ip);
+	boost::algorithm::replace_all(stripped_ip, ":", ";");
+
+	if(!xantispam_check(stripped_url, "&-DomainHandleMediaURLs", stripped_ip))
+	{
+		bool xantispam_denied = xantispam_check(stripped_url, "PlayFromMediaURL", stripped_ip);
+		if(xantispam_denied)
+		{
+			if(!sDeniedMedia.count(domain))
+			{
+				sDeniedMedia.insert(domain);
+			}
+			if(sAllowedMedia.count(domain))
+			{
+				sAllowedMedia.erase(domain);
+			}
+			if(!sDeniedMedia.count(ip))
+			{
+				sDeniedMedia.insert(ip);
+			}
+			if(sAllowedMedia.count(ip))
+			{
+				sAllowedMedia.erase(ip);
+			}
+		}
+		else
+		{
+			if(!sAllowedMedia.count(domain))
+			{
+				sAllowedMedia.insert(domain);
+			}
+			if (sDeniedMedia.count(domain))
+			{
+				sDeniedMedia.erase(domain);
+			}
+			if(!sAllowedMedia.count(ip))
+			{
+				sAllowedMedia.insert(ip);
+			}
+			if (sDeniedMedia.count(ip))
+			{
+				sDeniedMedia.erase(ip);
+			}
+		}
+		return xantispam_denied;
+	}
+
 	if (sAllowedMedia.count(domain) || sAllowedMedia.count(ip))
 	{
 		return true;
 	}
+
 	std::string server;
 	for (S32 i = 0; i < (S32)sMediaFilterList.size(); i++)
 	{
@@ -754,12 +814,13 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 			}
 		}
 	}
+
 	return false;
 }
 
 void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 {
-	std::string media_action;
+	std::string media_action = "ignore";
 	std::string media_url;
 	std::string domain;
 	std::string ip;
@@ -783,6 +844,9 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 
 	domain = extractDomain(media_url);
 
+// [Ratany:] There seems to be a bug causing this function to be
+// called in a loop or something.  Returning when a query is inserted
+// has hidden the bug. [/Ratany]
 	if (sMediaQueries.count(domain) > 0)
 	{
 		sIsUserAction = false;
@@ -793,53 +857,115 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 	host.setHostByName(domain);
 	ip = host.getIPString();
 
-	if (sIsUserAction)
-	{
-		// This was a user manual request to play this media, so give
-		// it another chance...
-		sIsUserAction = false;
-		bool dirty = false;
-		if (sDeniedMedia.count(domain))
-		{
-			sDeniedMedia.erase(domain);
-			dirty = true;
-		}
-		if (sDeniedMedia.count(ip))
-		{
-			sDeniedMedia.erase(ip);
-			dirty = true;
-		}
-		if (dirty && SLFloaterMediaFilter::findInstance())
-		{
-			SLFloaterMediaFilter::getInstance()->setDirty();
-		}
-	}
 
-	if (media_url.empty())
+	// [Ratany:] inserting
+	// This can be handled by xantispam if xantispam has a rule telling it to do so.
+	// It allows blocking particular ports rather than only domain/ip.
+	std::string stripped_url(media_url);
+	boost::algorithm::replace_all(stripped_url, ":", ";");
+	// in case this ever uses IPv6:
+	std::string stripped_ip(ip);
+	boost::algorithm::replace_all(stripped_ip, ":", ";");
+
+	if(!xantispam_check(stripped_url, "&-DomainHandleMediaURLs", stripped_ip))
 	{
-		media_action = "allow";
-	}
-	else if (!sMediaFilterListLoaded || sDeniedMedia.count(domain) || sDeniedMedia.count(ip))
-	{
-		media_action = "ignore";
-	}
-	else if (sAllowedMedia.count(domain) || sAllowedMedia.count(ip))
-	{
-		media_action = "allow";
+		bool xantispam_denied = xantispam_check(stripped_url, "PlayFromMediaURL", stripped_ip);
+		if(xantispam_denied)
+		{
+			if(!sDeniedMedia.count(domain))
+			{
+				sDeniedMedia.insert(domain);
+			}
+			if(sAllowedMedia.count(domain))
+			{
+				sAllowedMedia.erase(domain);
+			}
+			if(!sDeniedMedia.count(ip))
+			{
+				sDeniedMedia.insert(ip);
+			}
+			if(sAllowedMedia.count(ip))
+			{
+				sAllowedMedia.erase(ip);
+			}
+		}
+		else
+		{
+			if(!sAllowedMedia.count(domain))
+			{
+				sAllowedMedia.insert(domain);
+			}
+			if (sDeniedMedia.count(domain))
+			{
+				sDeniedMedia.erase(domain);
+			}
+			if(!sAllowedMedia.count(ip))
+			{
+				sAllowedMedia.insert(ip);
+			}
+			if (sDeniedMedia.count(ip))
+			{
+				sDeniedMedia.erase(ip);
+			}
+			media_action = "allow";
+		}
 	}
 	else
 	{
-		std::string server;
-		for (S32 i = 0; i < (S32)sMediaFilterList.size(); i++)
+		//
+		// don't do this media filter stuff when xantispam has already decided
+		//
+
+		if (sIsUserAction)
 		{
-			server = sMediaFilterList[i]["domain"].asString();
-			if (server == domain || server == ip)
+			// This was a user manual request to play this media, so give
+			// it another chance...
+			sIsUserAction = false;
+			bool dirty = false;
+			if (sDeniedMedia.count(domain))
 			{
-				media_action = sMediaFilterList[i]["action"].asString();
-				break;
+				sDeniedMedia.erase(domain);
+				dirty = true;
+			}
+			if (sDeniedMedia.count(ip))
+			{
+				sDeniedMedia.erase(ip);
+				dirty = true;
+			}
+			if (dirty && SLFloaterMediaFilter::findInstance())
+			{
+				SLFloaterMediaFilter::getInstance()->setDirty();
+			}
+		}
+
+		if (media_url.empty())
+		{
+			media_action = "allow";
+		}
+		else if (!sMediaFilterListLoaded || sDeniedMedia.count(domain) || sDeniedMedia.count(ip))
+		{
+			media_action = "ignore";
+		}
+		else if (sAllowedMedia.count(domain) || sAllowedMedia.count(ip))
+		{
+			media_action = "allow";
+		}
+		else
+		{
+			std::string server;
+			for (S32 i = 0; i < (S32)sMediaFilterList.size(); i++)
+			{
+				server = sMediaFilterList[i]["domain"].asString();
+				if (server == domain || server == ip)
+				{
+					media_action = sMediaFilterList[i]["action"].asString();
+					break;
+				}
 			}
 		}
 	}
+	// [/Ratany] /inserting
+
 
 	if (media_action == "allow")
 	{
@@ -935,6 +1061,7 @@ void callback_media_alert(const LLSD &notification, const LLSD &response, LLParc
 			}
 			LLViewerParcelMedia::saveDomainFilterList();
 			args["LISTED"] = "whitelisted";
+			args["DOMAIN"] = domain;
 			LLNotificationsUtil::add("MediaListed", args);
 		}
 		if (type == 0)
@@ -981,6 +1108,7 @@ void callback_media_alert(const LLSD &notification, const LLSD &response, LLParc
 				}
 				LLViewerParcelMedia::saveDomainFilterList();
 				args["LISTED"] = "blacklisted";
+				args["DOMAIN"] = domain;
 				LLNotificationsUtil::add("MediaListed", args);
 			}
 		}

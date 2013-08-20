@@ -895,12 +895,6 @@ void LLFloaterIMPanel::addHistoryLine(const std::string &utf8msg, LLColor4 incol
 	if (log_to_file
 		&& gSavedPerAccountSettings.getBOOL("LogInstantMessages") ) 
 	{
-		// llinfos << "session label:     " << mSessionLabel << llendl;
-		// llinfos << "is group session:  " << (LLFloaterIMPanel::isGroupSessionType() ? "Yes" : "No") << llendl;
-		// llinfos << "other participant: " << mOtherParticipantUUID.asString() << llendl;
-		// llinfos << "source:            " << source.asString() << llendl;
-		// llinfos << "line:              " << histstr << llendl;
-
 		std::string filename(LLDir::getScrubbedFileName(label));
 
 		// Optionally distinguish the log files by friends, non-friends and groups:
@@ -928,7 +922,10 @@ void LLFloaterIMPanel::addHistoryLine(const std::string &utf8msg, LLColor4 incol
 		}
 		else // for group sessions
 		{
-			LLLogChat::saveHistory(filename, histstr);
+			if(xantispam_check(from, "&-GRLogDontSave", label))
+			{
+				LLLogChat::saveHistory(filename, histstr);
+			}
 		}
 		// [/Ratany]
 	}

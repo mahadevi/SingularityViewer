@@ -2172,7 +2172,8 @@ static void xantispam_make_listheader(const std::string& filename)
 
 	LLFILE *f = LLFile::fopen(filename, "a");
 	if(f) {
-		const std::string header = "# " + filename + "\n# created " + xantispam_get_timestamp() +  "\n#\n# Format for rules:\n# <UUID>:<type>[[timestamp]][# comment]\n#\n# The colon is a wildcard when it is not in place of a seperator.\n#\n";
+		const std::string header = filename + "    -*- mode: org; -*-" + "\n\n* Created\n\n" + xantispam_get_timestamp() +  "\nRules must be in an emacs org-mode table like below.\n\n* Rules\n|---------------------+-------------------+-------------+-----------|\n| <Origin of Request> | <Type of Request> | [Timestamp] | [Comment] |\n|---------------------+-------------------+-------------+-----------|\n";
+
 		if(fwrite(header.c_str(), header.length(), 1, f) != 1)
 		{
 			llwarns << "fwrite() failed to append header to " << filename << llendl;
@@ -2598,7 +2599,7 @@ static bool xantispam_process_launcher(const std::string& rule, const std::strin
 	{
 		launcher.clearArguments();
 		launcher.setExecutable(executable);
-		launcher.setWorkingDirectory("/tmp");
+		launcher.setWorkingDirectory(LLFile::tmpdir());
 	}
 	std::string parameters("");
 	it++;

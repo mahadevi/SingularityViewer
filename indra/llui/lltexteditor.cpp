@@ -70,12 +70,6 @@
 // [Ratany]
 #include "llnotificationsutil.h"
 #include "../newview/llexternaleditor.h"
-#include "apr_base64.h"
-#ifdef LL_STANDALONE
-# include <zlib.h>
-#else
-# include "zlib/zlib.h"
-#endif
 // [/Ratany]
 
 
@@ -374,8 +368,7 @@ LLTextEditor::LLTextEditor(
 	// [Ratany:] putting this here so it's always available
 	menu->addChild(new LLMenuItemCallGL("Save contents and Edit ...", context_saveandedit, NULL, this));
 	menu->addChild(new LLMenuItemCallGL("Replace contents from File ...", context_loadfile, NULL, this));
-	menu->addChild(new LLMenuItemCallGL("Base64 decode, uncompress, save and Edit ...", context_base64_save, NULL, this));
-	menu->addChild(new LLMenuItemCallGL("Load a file, compress, base64 encode, replace contents with ...", context_base64_load, NULL, this));
+	menu->addChild(new LLMenuItemCallGL("Start external Editor", context_start_external, NULL, this));
 	// [/Ratany]
 	menu->addSeparator();
 	menu->setCanTearOff(FALSE);
@@ -406,6 +399,29 @@ void LLTextEditor::context_copy(void* data)
 
 
 // [Ratany]
+bool LLTextEditor::run_external_editor(const std::string filename)
+{
+	LLExternalEditor e;
+	LLExternalEditor::EErrorCode ec;
+
+	ec = e.setCommand(gSavedSettings.getString("ExternalEditor"));
+	if(ec != LLExternalEditor::EC_SUCCESS)
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Error using '" + gSavedSettings.getString("ExternalEditor") + "' as command. Did you set the ExternalEditor debug setting correctly?"));
+		return true;
+	}
+
+	ec = e.run(filename);
+	if(ec != LLExternalEditor::EC_SUCCESS)
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Starting the external editor seems to have failed."));
+		return true;
+	}
+
+	return false;  // return false on success
+}
+
+
 void LLTextEditor::context_saveandedit(void *data)
 {
 	LLUUID uuid = LLUUID::generateNewID();
@@ -414,24 +430,23 @@ void LLTextEditor::context_saveandedit(void *data)
 
 	AIFilePicker *filepicker = AIFilePicker::create();
 	filepicker->open(filename, FFSAVE_ALL, "", "savefile");
-	filepicker->run(boost::bind(&LLTextEditor::context_saveandedit_picked, data, filepicker, false));
+	filepicker->run(boost::bind(&LLTextEditor::context_saveandedit_picked, data, filepicker));
 }
 
-void LLTextEditor::context_base64_save(void *data)
+void LLTextEditor::context_saveandedit_picked(void *data, AIFilePicker* filepicker)
 {
-	LLUUID uuid = LLUUID::generateNewID();
-	std::string filename;
-	filename = "singularity-edit-" + uuid.asString() + ".txt";
+	LLTextEditor *line = (LLTextEditor *)data;
 
-	AIFilePicker *filepicker = AIFilePicker::create();
-	filepicker->open(filename, FFSAVE_ALL, "", "savefile");
-	filepicker->run(boost::bind(&LLTextEditor::context_saveandedit_picked, data, filepicker, true));
-}
-
-void LLTextEditor::context_saveandedit_picked(void *data, AIFilePicker* filepicker, bool decode_base64)
-{
-	if (!filepicker->hasFilename())
+	if(filepicker && line)
 	{
+		if (!filepicker->hasFilename())
+		{
+			return;
+		}
+	}
+	else
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "A strange error occured: Null pointer."));
 		return;
 	}
 
@@ -445,63 +460,27 @@ void LLTextEditor::context_saveandedit_picked(void *data, AIFilePicker* filepick
 		return;
 	}
 
-	LLFILE *f = LLFile::fopen(filename, (decode_base64 ? "wb" : "w"));
+	LLFILE *f = LLFile::fopen(filename, "w");
 	if(!f)
 	{
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Cannot open " + filename + " for writing!"));
 		return;
 	}
 
-	LLTextEditor *line = (LLTextEditor *)data;
-	std::string content = line->getText();
-	int status = 1; // hmm ...
-
-	if(decode_base64 && !content.empty())
+	std::string content = "[There has been an error!]";
+	if(line)
 	{
-		// use compression transparently
-		// first decode, then uncompress --- wielding data types around a little
-		// This doesn't exactly work with std::string for the files may contain
-		// '\0'.
-		Bytef *decoded = new Bytef[apr_base64_decode_len(content.c_str())];
-		uLongf srclen = apr_base64_decode((char *)decoded, content.c_str());
-
-		// uncompressed size is unknown, assume hilarious compression rates
-		uLongf dlen = line->mMaxTextByteLength << 4;
-		Bytef *decompr = new Bytef[dlen];
-		status = uncompress(decompr, &dlen, decoded, srclen);
-		// dlen is now actual length
-
-		if(status == Z_OK)
-		{
-			status = (fwrite(decompr, dlen, 1, f) != 1);
-		}
-		else
-		{
-			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Decompression failed, proceeding with whatever data the attempt to undecode produced."));
-			llinfos << "uncompress() returned " << status << llendl;
-			// at least write the decoded data
-			status = (fwrite(decoded, apr_base64_decode_len(content.c_str()), 1, f) != 1);
-		}
-
-		delete[] decoded;
-		delete[] decompr;
-	}
-	else
-	{
-		// assuming that this is text, though items may be embedded
-		status = (fputs(content.c_str(), f) == EOF);
+		content = line->getText();
 	}
 
-	if(status)
+	// assuming that this is text, though items may be embedded
+	if(fputs(content.c_str(), f) == EOF)
 	{
 		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Writing to " + filename + " failed."));
 		clearerr(f);
 	}
 	fclose(f);
-
-	LLExternalEditor e;
-	e.setCommand(gSavedSettings.getString("ExternalEditor"));
-	e.run(filename);
+	run_external_editor(filename);
 }
 
 
@@ -509,27 +488,30 @@ void LLTextEditor::context_loadfile(void *data)
 {
 	AIFilePicker *filepicker = AIFilePicker::create();
 	filepicker->open(FFLOAD_ALL, "", "openfile", false);
-	filepicker->run(boost::bind(&LLTextEditor::context_loadfile_picked, data, filepicker, false));
+	filepicker->run(boost::bind(&LLTextEditor::context_loadfile_picked, data, filepicker));
 }
 
-void LLTextEditor::context_base64_load(void *data)
+void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker)
 {
-	AIFilePicker *filepicker = AIFilePicker::create();
-	filepicker->open(FFLOAD_ALL, "", "openfile", false);
-	filepicker->run(boost::bind(&LLTextEditor::context_loadfile_picked, data, filepicker, true));
-}
+	LLTextEditor *line = (LLTextEditor *)data;
 
-void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker, bool encode_base64)
-{
-	if (!filepicker->hasFilename())
+	if(filepicker && line)
 	{
+		if (!filepicker->hasFilename())
+		{
+			return;
+		}
+	}
+	else
+	{
+		LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "A strange error occured: Null pointer."));
 		return;
 	}
 
 	std::string filename = filepicker->getFilename();
 	std::string content;
-	LLTextEditor *line = (LLTextEditor *)data;
 	content.reserve(line->mMaxTextByteLength);
+
 	LLFILE *f = LLFile::fopen(filename, "r");
 	if(f)
 	{
@@ -549,49 +531,10 @@ void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker,
 		{
 			if(c != EOF)
 			{
-				LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the content from the file, hence the input will appear truncated here. However, when base64 encoding is used, the input is also compressed and may be small enough."));
+				LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the content from the file, hence the input will appear truncated here."));
 			}
 		}
 		fclose(f);
-	}
-
-	if(encode_base64 && !content.empty())
-	{
-		// use compression transparently
-		// first compress, then encode as base64
-		uLongf clen = compressBound(content.length());
-		Bytef *compressed = new Bytef[clen];
-		int status = compress2(compressed, &clen, (const Bytef *)content.c_str(), (uLong)content.length(), Z_BEST_COMPRESSION);
-		// clen is now actual size
-
-		if(status == Z_OK)
-		{
-			content.clear();
-			content.reserve(clen);
-			Bytef *start = compressed;
-			Bytef *end = compressed + clen;
-			while(start < end)
-			{
-				content.push_back((char)(*start));
-				start++;
-			}
-		}
-		else
-		{
-			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "Compression failed, encoding uncompressed!"));
-			llinfos << "compress returned " << status << llendl;
-		}
-		delete[] compressed;
-
-		int len = apr_base64_encode_len(content.length());
-		if(len > line->mMaxTextByteLength)
-		{
-			LLNotificationsUtil::add("GenericAlert", LLSD().with("MESSAGE", "This editor does not fathom all the encoded content from the file, hence the data will appear truncated here."));
-		}
-		char *encoded = new char[len];
-		apr_base64_encode(encoded, content.c_str(), content.length());
-		content.assign(encoded);
-		delete[] encoded;
 	}
 
 	if(content.empty())
@@ -600,9 +543,14 @@ void LLTextEditor::context_loadfile_picked(void *data, AIFilePicker* filepicker,
 	}
 	else
 	{
-		// truncates anyway when it's too long
 		line->setText(content);
 	}
+}
+
+
+void LLTextEditor::context_start_external(void *data)
+{
+	run_external_editor("");
 }
 // [/Ratany]
 

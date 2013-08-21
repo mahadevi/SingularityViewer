@@ -47,10 +47,12 @@
 #include "llpreeditor.h"
 #include "llmenugl.h"
 
+// [Ratany:] for the filepicker
 #include "../llplugin/llpluginclassmedia.h"
 #include "../llplugin/llpluginclassbasic.h"
 #include "../newview/llviewerpluginmanager.h"
 #include "../newview/statemachine/aifilepicker.h"
+// [/Ratany]
 
 
 class LLFontGL;
@@ -164,12 +166,16 @@ public:
 	static void context_paste(void* data);
 	static void context_delete(void* data);
 	static void context_selectall(void* data);
+
+	// [Ratany]
+	static bool run_external_editor(const std::string filename);
 	static void context_saveandedit(void *data);
-	static void context_base64_save(void *data);
-	static void context_saveandedit_picked(void *data, AIFilePicker* filepicker, bool decode_base64);
+	static void context_start_external(void *data);
+	static void context_saveandedit_picked(void *data, AIFilePicker* filepicker);
 	static void context_loadfile(void *data);
-	static void context_base64_load(void *data);
-	static void context_loadfile_picked(void *data, AIFilePicker* filepicker, bool encode_base64);
+	static void context_loadfile_picked(void *data, AIFilePicker* filepicker);
+	// [/Ratany]
+
 	static void spell_correct(void* data);
 	static void spell_add(void* data);
 	static void spell_show(void* data);

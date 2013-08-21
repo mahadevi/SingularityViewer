@@ -465,15 +465,26 @@ void LLFloaterIMPanel::init(const std::string& session_label)
 
 	if ( gSavedPerAccountSettings.getBOOL("LogShowHistory") )
 	{
-		// [Ratany:] Check for distinction and use decent filename
-		std::string label = mSessionLabel;
+		// [Ratany:] Check for distinction
+		std::string label(mSessionLabel);
 		boost::algorithm::trim(label);
-		std::string filename(gDirUtilp->getScrubbedFileName(label));
-		if(!isGroupSessionType() && !xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogDistinct", label))
+		std::string filename(label);
+		if(!isGroupSessionType())
 		{
-			filename = (LLAvatarActions::isFriend(mOtherParticipantUUID) ? "friend_" : "resident_") + filename;
+			if(!xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogDistinct", label))
+			{
+				filename = (LLAvatarActions::isFriend(mOtherParticipantUUID) ? "friend_" : "resident_") + filename;
+			}
 		}
-
+		else
+		{
+			std::string origin(label);
+			origin.erase(std::remove_if(origin.begin(), origin.end(), isspace), origin.end());
+			if(!xantispam_check(origin, "&-GRLogDistinct", label))
+			{
+				filename = "nonagent_" + filename;
+			}
+		}
 		LLLogChat::loadHistory(filename, 		// [/Ratany]
 				       &chatFromLogFile,
 				       (void *)this);
@@ -878,7 +889,7 @@ void LLFloaterIMPanel::addHistoryLine(const std::string &utf8msg, LLColor4 incol
 		histstr = show_name + utf8msg;
 
 
-	// [Ratany:] finally get the trailing whitespace out of the filenames!
+	// [Ratany:]
 	std::string label(mSessionLabel);
 	boost::algorithm::trim(label);
 	std::string from = ((source == gAgentID) ? mOtherParticipantUUID.asString() : source.asString());
@@ -895,8 +906,8 @@ void LLFloaterIMPanel::addHistoryLine(const std::string &utf8msg, LLColor4 incol
 	if (log_to_file
 		&& gSavedPerAccountSettings.getBOOL("LogInstantMessages") ) 
 	{
-		std::string filename(LLDir::getScrubbedFileName(label));
-
+		std::string filename(label);
+		bool dont_log = false;
 		// Optionally distinguish the log files by friends, non-friends and groups:
 		if(!isGroupSessionType())
 		{
@@ -907,27 +918,40 @@ void LLFloaterIMPanel::addHistoryLine(const std::string &utf8msg, LLColor4 incol
 				if(!xantispam_check(from, "&-IMLogDistinct", label))
 				{
 					bool is_friend = ((source == gAgentID) || LLAvatarActions::isFriend(source));
-					LLLogChat::saveHistory((is_friend ? "friend_" : "resident_") + filename, histstr);
+					filename = (is_friend ? "friend_" : "resident_") + filename;
 				}
-				else // just log as usual
-				{
-					// [Ansariel: Display name support]
-					// Floater title contains display name -> bad idea to use that as filename
-					// mSessionLabel, however, should still be the old legacy name
-					//LLLogChat::saveHistory(getTitle(),histstr);
-					LLLogChat::saveHistory(filename, histstr);
-					// [/Ansariel: Display name support]
-				}
+			}
+			else
+			{
+				dont_log = true;
 			}
 		}
 		else // for group sessions
 		{
-			if(xantispam_check(from, "&-GRLogDontSave", label))
+			std::string origin(label);
+			origin.erase(std::remove_if(origin.begin(), origin.end(), isspace), origin.end());
+			if(xantispam_check(origin, "&-GRLogDontSave", label))
 			{
-				LLLogChat::saveHistory(filename, histstr);
+				if(!xantispam_check(origin, "&-GRLogDistinct", label))
+				{
+					filename = "nonagent_" + filename;
+				}
+			}
+			else
+			{
+				dont_log = true;
 			}
 		}
-		// [/Ratany]
+		if(!dont_log)
+		{
+			// [Ansariel: Display name support]
+			// Floater title contains display name -> bad idea to use that as filename
+			// mSessionLabel, however, should still be the old legacy name
+			//LLLogChat::saveHistory(getTitle(),histstr);
+			LLLogChat::saveHistory(filename, histstr);
+			// [/Ansariel: Display name support]
+			// [/Ratany]
+		}
 	}
 
 	if (!isInVisibleChain())
@@ -1133,37 +1157,46 @@ void LLFloaterIMPanel::onClickHistory()
 {
 	if (mOtherParticipantUUID.notNull())
 	{
-		// [Ansariel: Display name support]
-		//std::string fullname(gDirUtilp->getScrubbedFileName(getTitle()));
-
-		// [Ratany:] Check for distinction, and get this right
+		// [Ratany:] Check for distinction friend/resident
 		std::string label = mSessionLabel;
 		boost::algorithm::trim(label);
-		std::string scrubbed_name(gDirUtilp->getScrubbedFileName(label) + ".txt");
-		std::string path(gDirUtilp->getPerAccountChatLogsDir() + gDirUtilp->getDirDelimiter()); // hopefully, the path doesn't need scrubbing
-
-		if(!isGroupSessionType() && !xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogDistinct", label))
+		std::string filename = label;
+		if(!isGroupSessionType())
 		{
-			scrubbed_name = (LLAvatarActions::isFriend(mOtherParticipantUUID) ? "friend_" : "resident_") + scrubbed_name;
+			if(!xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogDistinct", label))
+			{
+				filename = (LLAvatarActions::isFriend(mOtherParticipantUUID) ? "friend_" : "resident_") + filename;
+			}
 		}
+		else
+		{
+			// needs the group name without spaces as origin for distinction here
+			std::string origin = label;
+			origin.erase(std::remove_if(origin.begin(), origin.end(), isspace), origin.end());
+			if(!xantispam_check(origin, "&-GRLogDistinct", label))
+			{
+				filename = "nonagent_" + filename;
+			}
+		}
+
+		filename = LLLogChat::makeLogFileName(filename);
+
 		// see if the user wants full history file in external
 		// editor, which is what I always expected to happen
 		// from a button like this ...
-		scrubbed_name = path + scrubbed_name;
-		if(!xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogHistoryExternal", scrubbed_name))
+		if(!xantispam_check(mOtherParticipantUUID.asString(), "&-IMLogHistoryExternal", filename))
 		{
 			// ... and if so, this starts the external editor with the log, hence return
 			return;
 		}
 		// [/Ratany]
+
+		// [Ansariel: Display name support]
+		//std::string command("\"" + LLLogChat::makeLogFileName(getTitle()) + "\"");
+		// [Ratany: This command thing does apparently nothing. /Ratany]
+		std::string command("\"" + filename + "\"");
 		// [/Ansariel: Display name support]
-		// [Ratany: sprintf() is extremely deprecated, changed to string. /Ratany]
-
-		// [Ratany: this apparently does nothing on Linux and Mac]
-		gViewerWindow->getWindow()->ShellEx(scrubbed_name.c_str());
-		// [/Ratany]
-
-		// llinfos << command << llendl;
+		gViewerWindow->getWindow()->ShellEx(command);
 	}
 }
 

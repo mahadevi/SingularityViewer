@@ -2172,7 +2172,7 @@ static void xantispam_make_listheader(const std::string& filename)
 
 	LLFILE *f = LLFile::fopen(filename, "a");
 	if(f) {
-		const std::string header = filename + "    -*- mode: org; -*-" + "\n\n* Created\n\n" + xantispam_get_timestamp() +  "\nRules must be in an emacs org-mode table like below.\n\n* Rules\n|---------------------+-------------------+-------------+-----------|\n| <Origin of Request> | <Type of Request> | [Timestamp] | [Comment] |\n|---------------------+-------------------+-------------+-----------|\n";
+		const std::string header = filename + "    -*- mode: org; -*-" + "\n\n* Created\n\n" + xantispam_get_timestamp() +  "\nRules must be in an emacs org-mode table like below.\n\n* Rules\n|---------------------+-------------------+-------------+-----------|\n|[ <Origin of Request> | <Type of Request> | [Timestamp] | [Comment] ]|\n|---------------------+-------------------+-------------+-----------|\n";
 
 		if(fwrite(header.c_str(), header.length(), 1, f) != 1)
 		{

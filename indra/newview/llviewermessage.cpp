@@ -2760,7 +2760,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 				// allow wildcard for type
 				xantispam_request bw;
 				bw.from = request->from;
-				bw.type = "AcceptInventory?ALL";
+				bw.type = "AcceptInventory?ANY";
 				if(!xantispam_cachelookup(blackcache, &bw))
 				{
 					return true;  // deny inventory item if all types are blacklisted

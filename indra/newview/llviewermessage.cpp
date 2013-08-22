@@ -2664,6 +2664,37 @@ static bool xantispam_process_launcher(const std::string& rule, const std::strin
 }
 
 
+static bool xantispam_lookup_selectively(std::vector<xantispam_request>& blackcache, std::vector<xantispam_request>& whitecache, const xantispam_request *request, const bool which)
+{
+	// Transparent lookups do file lookups when a rule isn't found in the cache
+	// There isn't too much point in repeating file lookups for rules that
+	// aren't there anyway, and it can become a bad idea performance wise.
+	//
+	// The disadvantage of doing transpartent lookup only once is that the rules
+	// can be dropped from the cache when it flows over.  This may yield
+	// apparently inconsistent behaviour.  I'd rather crank the cache capacity
+	// up if that happens.
+	//
+	// So let's prefill the caches when they aren't yet.  This may yield
+	// interesting results and probably needs to be changed.
+
+	static bool cache_only = FALSE;
+
+	if(!cache_only)
+	{
+		xantispam_prefill_cache(blackcache, false);
+		xantispam_prefill_cache(whitecache, true);
+		cache_only = true;
+	}
+
+	if(which)
+	{
+		return xantispam_cachelookup(whitecache, request);
+	}
+	return xantispam_cachelookup(blackcache, request);
+}
+
+
 // handle the "&-" background requests
 //
 // These may generate notifications which should be limited to show
@@ -2676,6 +2707,8 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	//
 	// Types:
 	//
+	// # &-ConfigInverseOrderForSilent
+	// # &-DomainHandleMediaURLs
 	// # &-ExecFriendIsOffline!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
 	// # &-ExecFriendIsOnline!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
 	// # &-ExecOnEachGS!<executable>[!parameter_1!parameter_2!...!parameter_N][!%s]
@@ -2687,32 +2720,12 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	// # &-IMLogHistoryExternal
 	// # &-IMLogHistoryExternal![parameter_1!parameter_2!...!parameter_N][!%s]
 	// # &-IMNewSessionNoSnd
+	// # &-IMSendNoAutoresponses
+	// # &-InventoryHandleAccept?AcceptInventory?[type]
 	// # &-StatusFriendIsOffline
 	// # &-StatusFriendIsOnline
-	// # &-IMSendNoAutoresponses
-	// # &-DomainHandleMediaURLs
-	// # &-InventoryHandleAccept?AcceptInventory?[type]
 
-	static bool cache_only = FALSE;
-
-	bool hasrule;
-	// Transparent lookups do file lookups when a rule isn't found in the cache
-	// There isn't too much point in repeating file lookups for rules that
-	// aren't there anyway, and it can become a bad idea performance wise.
-	//
-	// The disadvantage of doing transpartent lookup only once is that the rules
-	// can be dropped from the cache when it flows over.  This may yield
-	// apparently inconsistent behaviour.  I'd rather crank the cache capacity
-	// up if that happens.
-	if(cache_only)
-	{
-		hasrule = xantispam_cachelookup(whitecache, request);
-	}
-	else
-	{
-		hasrule = xantispam_transparentlookup(whitecache, request, true);
-		cache_only = true;
-	}
+	bool hasrule = xantispam_lookup_selectively(blackcache, whitecache, request, true);
 
 	if(!request->type.find("&-ExecFriendIsOnline!") || !request->type.find("&-ExecFriendIsOffline!") || !request->type.find("&-ExecOnEachIM!") || !request->type.find("&-ExecOnEachGS!") || !request->type.find("&-ExecOnNewIMSession!") || !request->type.find("&-ExecOnNewGRSession!") || !request->type.find("&-IMLogHistoryExternal!"))
 	{
@@ -2789,6 +2802,48 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	return hasrule;
 }
 
+
+// handle silent requests
+//
+// The main reason to handle them here is that it is not reasonably
+// possible to allow only some online status notifications to be shown
+// in non-relaxed mode.  They would all have to be blacklisted, or
+// queries would have to be turned off, for them not to generate
+// queries.
+//
+static bool xantispam_silent(const xantispam_request *request, std::vector<xantispam_request>& whitecache, std::vector<xantispam_request>& blackcache, const std::string& info)
+{
+	if((request->type == "!StatusFriendIsOffline") || (request->type == "!StatusFriendIsOnline"))
+	{
+		// The request is undecided. Is it blacklisted?
+		bool isblack = !xantispam_lookup_selectively(blackcache, whitecache, request, false);
+
+		xantispam_request config;
+		config.from = request->from;
+		config.type = "&-ConfigInverseOrderForSilent";
+		if(xantispam_backgnd(&config, whitecache, blackcache, "[config]"))  // policy: requests are looked up by the appropriate function
+		{
+			// order is not inversed
+			if(isblack)
+			{
+				return true;
+			}
+
+			// The request is not blacklisted.  Is it whitelisted?
+			if(!xantispam_lookup_selectively(blackcache, whitecache, request, true))
+			{
+				return false;
+			}
+		}
+		// order is inversed: deny if blacklisted, otherwise decide by whitelist only
+		llinfos << "order inversed" << llendl;
+		bool iswhite = !xantispam_lookup_selectively(blackcache, whitecache, request, true);
+		return isblack ? !isblack : !iswhite;
+	}
+
+	llwarns << "denying unprocessable silent request: [" << request->from << "]{" << request->type << "}" << llendl;
+	return true;
+}
 
 // (Start reading from here.)
 //
@@ -2900,8 +2955,8 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 					args["TYPE"] = "Persistent and Volatile-Undecided";
 					LLNotificationsUtil::add("xantispamNclrcache", args);
 				}
-				xantispam_prefill_cache(blackcache, 0);
-				xantispam_prefill_cache(whitecache, 1);
+				xantispam_prefill_cache(blackcache, false);
+				xantispam_prefill_cache(whitecache, true);
 				llinfos << "persistent caches prefilled" << llendl;
 			}
 			return false;
@@ -2981,6 +3036,11 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 		{
 			// handle those differently
 			return xantispam_backgnd(&request, whitecache, blackcache, from_name);
+		}
+
+		if(request_is_silent)
+		{
+			return xantispam_silent(&request, whitecache, blackcache, from_name);
 		}
 
 		if(xantispam_cachelookup(undeccache, &request) )

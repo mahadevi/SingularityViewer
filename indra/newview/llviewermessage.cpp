@@ -3251,7 +3251,17 @@ bool is_spam_filtered(const EInstantMessage& dialog, bool is_friend, bool is_own
 		break;
 	case IM_TASK_INVENTORY_OFFERED:
 		if (!gSavedSettings.getBOOL("AntiSpamItemOffers")) return false;
-		return xantispam_check(from_id, "ItemOffersFromTask", from_name);
+
+		// Go by intentory handling rules when any origins are configured for it.
+		// This is needed for non-relaxed mode.
+		if(xantispam_check(":", "&-InventoryHandleDistinctly", "[internal lookup]"))
+		{
+			return xantispam_check(from_id, "ItemOffersFromTask", from_name);
+		}
+		else
+		{
+			return false;
+		}
 		break;
 	case IM_FROM_TASK_AS_ALERT:
 		if (!gSavedSettings.getBOOL("AntiSpamAlerts")) return false;

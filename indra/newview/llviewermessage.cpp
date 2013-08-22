@@ -2734,8 +2734,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 		boost::algorithm::erase_all(rule, "\"");
 		boost::algorithm::replace_all(rule, " ", "!");
 
-// TODO: fix return when distinct inventory handling is implemented to make it a seperate commit
-		return xantispam_process_launcher(rule, info);
+		return !xantispam_process_launcher(rule, info);
 	}
 
 	// wrapper for distinct inventory offer handling

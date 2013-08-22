@@ -3297,52 +3297,54 @@ bool is_spam_filtered(const EInstantMessage& dialog, bool is_friend, bool is_own
 	return true;
 }
 
-void inventory_offer_handler(LLOfferInfo* info)
+bool inventory_offer_handler_answer_available(LLOfferInfo *info)
 {
 	// NaCl - Antispam Registry
 	if (NACLAntiSpamRegistry::checkQueue((U32)NACLAntiSpamRegistry::QUEUE_INVENTORY,info->mFromID))
 	{
 		delete info;
-		return;
-	}
-	// NaCl End
-	//If muted, don't even go through the messaging stuff.  Just curtail the offer here.
+		return true;
+	}  // NaCl End
+
+	// If muted, don't even go through the messaging stuff.  Just curtail the offer here.
 	if (LLMuteList::getInstance()->isMuted(info->mFromID, info->mFromName))
 	{
 		info->forceResponse(IOR_MUTE);
-		return;
+		return true ;
 	}
 
 	// If the user wants to, accept all offers of any kind
 	if (gSavedSettings.getBOOL("AutoAcceptAllNewInventory"))
 	{
 		info->forceResponse(IOR_ACCEPT);
-		return;
+		return true;
 	}
 
 	// Avoid the Accept/Discard dialog if the user so desires. JC
-	if (gSavedSettings.getBOOL("AutoAcceptNewInventory")
-		&& (info->mType == LLAssetType::AT_NOTECARD
-			|| info->mType == LLAssetType::AT_LANDMARK
-			|| info->mType == LLAssetType::AT_TEXTURE))
+	if (gSavedSettings.getBOOL("AutoAcceptNewInventory") && (info->mType == LLAssetType::AT_NOTECARD || info->mType == LLAssetType::AT_LANDMARK || info->mType == LLAssetType::AT_TEXTURE))
 	{
-		// For certain types, just accept the items into the inventory,
-		// and possibly open them on receipt depending upon "ShowNewInventory".
 		info->forceResponse(IOR_ACCEPT);
-		return;
+		return true;
 	}
 
-	if (gAgent.getBusy() && info->mIM != IM_TASK_INVENTORY_OFFERED) // busy mode must not affect interaction with objects (STORM-565)
+	// busy mode must not affect interaction with objects (STORM-565)
+	// Until throttling is implemented, busy mode should reject inventory instead of silently
+	// accepting it.  SEE SL-39554
+	// [Ratany: Throttling seems to be implemented now through NACL-antispam queues? /Ratany]
+	if (gAgent.getBusy() && info->mIM != IM_TASK_INVENTORY_OFFERED)
 	{
-		// Until throttling is implemented, busy mode should reject inventory instead of silently
-		// accepting it.  SEE SL-39554
 		info->forceResponse(IOR_DECLINE);
-		return;
+		return true;
 	}
+	return false;
+}
 
+
+std::string inventory_offer_handler_strip_url(const LLOfferInfo *info)
+{
 	// Strip any SLURL from the message display. (DEV-2754)
 	std::string msg = info->mDesc;
-	int indx = msg.find(" ( http://slurl.com/secondlife/");
+	std::size_t indx = msg.find(" ( http://slurl.com/secondlife/");
 	if(indx == std::string::npos)
 	{
 		// try to find new slurl host
@@ -3352,129 +3354,111 @@ void inventory_offer_handler(LLOfferInfo* info)
 	{
 		LLStringUtil::truncate(msg, indx);
 	}
+	return msg;
+}
 
-	LLSD args;
-	args["[OBJECTNAME]"] = msg;
 
-	LLSD payload;
-
-	// [Ratany]
-	std::string xantispam_typestr;
-	std::string xantispam_fromstr;
-	std::string xantispam_infostr = "[unknown]";
-
+bool inventory_offer_handler_get_asset_type(const LLOfferInfo *info, std::string& assettype)
+{
 	// must protect against a NULL return from lookupHumanReadable()
-	std::string typestr = ll_safe_string(LLAssetType::lookupHumanReadable(info->mType));
-	if (!typestr.empty())
+	assettype = ll_safe_string(LLAssetType::lookupHumanReadable(info->mType));
+	if (!assettype.empty())
 	{
-		// users shouldn't need to change their rules when changing languages
-		xantispam_typestr = typestr;
-
 		// human readable matches string name from strings.xml
 		// lets get asset type localized name
-		args["OBJECTTYPE"] = LLTrans::getString(typestr);
+		assettype = LLTrans::getString(assettype);
+		return false;
 	}
-	else
-	{
-		LL_WARNS("Messaging") << "LLAssetType::lookupHumanReadable() returned NULL - probably bad asset type: " << info->mType << LL_ENDL;
-		args["OBJECTTYPE"] = "";
 
-		// This seems safest, rather than propagating bogosity
-		LL_WARNS("Messaging") << "Forcing an inventory-decline for probably-bad asset type." << LL_ENDL;
-		info->forceResponse(IOR_DECLINE);
+	LL_WARNS("Messaging") << "LLAssetType::lookupHumanReadable() returned NULL - probably bad asset type: " << info->mType << LL_ENDL;
+	// This seems safest, rather than propagating bogosity
+	LL_WARNS("Messaging") << "Forcing an inventory-decline for probably-bad asset type." << LL_ENDL;
+	return true;
+}
+
+
+void inventory_offer_handler(LLOfferInfo* info)
+{
+	// see if current settings provide a response
+	if(inventory_offer_handler_answer_available(info))
+	{
 		return;
 	}
 
-	// Name cache callbacks don't store userdata, so can't save
-	// off the LLOfferInfo.  Argh.
-	BOOL name_found = FALSE;
-	payload["from_id"] = info->mFromID;
-	// info->mFromID is incorrect for objects given by tasks in that it holds the OwnerID rather than the ObjectID.
-	// Can that be fixed by providing an ObjectID?
-	xantispam_fromstr = info->mObjectID.isNull() ? info->mFromID.asString() : info->mObjectID.asString();
-	args["OBJECTFROMNAME"] = info->mFromName;
-	args["NAME"] = info->mFromName;
-	xantispam_infostr = info->mFromName;
-	if (info->mFromGroup)
+	// get name of asset given
+	std::string asset_name = inventory_offer_handler_strip_url(info);
+
+	// get type of asset
+	std::string assettype;
+	if(inventory_offer_handler_get_asset_type(info, assettype))
 	{
-		std::string group_name;
-		if (gCacheName->getGroupName(info->mFromID, group_name))
-		{
-			args["NAME"] = group_name;
-			xantispam_infostr = xantispam_fromstr;
-			xantispam_fromstr = group_name;
-			xantispam_fromstr.erase(std::remove_if(xantispam_fromstr.begin(), xantispam_fromstr.end(), isspace), xantispam_fromstr.end());
-			name_found = TRUE;
-		}
+		// return on bogus asset type
+		info->forceResponse(IOR_DECLINE);
+	}
+
+	// figure out the origin of the offer
+	enum org {
+		GROUP,
+		AGENT,
+		TASK
+	} origin;
+	if(info->mFromObject)
+	{
+		origin = TASK;
 	}
 	else
 	{
-		std::string full_name;
-		if (gCacheName->getFullName(info->mFromID, full_name))
-		{
-// [RLVa:KB] - Checked: 2010-11-02 (RLVa-1.2.2a) | Modified: RLVa-1.2.2a
-		// Only filter if the object owner is a nearby agent
-			if ( (gRlvHandler.hasBehaviour(RLV_BHVR_SHOWNAMES)) && (RlvUtil::isNearbyAgent(info->mFromID)) )
-			{
-				full_name = RlvStrings::getAnonym(full_name);
-			}
-// [/RLVa:KB]
-			args["NAME"] = full_name;
-			xantispam_infostr = full_name;
-			name_found = TRUE;
-		}
+		origin = info->mFromGroup ? GROUP : AGENT;
 	}
 
+	// find the name of the origin
+	std::string origin_name;
+	bool origin_name_found = false;
+	switch(origin)
+	{
+	case GROUP:
+		if(gCacheName->getGroupName(info->mFromID, origin_name))
+		{
+			origin_name_found = true;
+		}
+		break;
+	case AGENT:
+		if (gCacheName->getFullName(info->mFromID, origin_name))
+		{
+// [RLVa:KB] - Checked: 2010-11-02 (RLVa-1.2.2a) | Modified: RLVa-1.2.2a
+			// Only filter if the object owner is a nearby agent
+			if ( (gRlvHandler.hasBehaviour(RLV_BHVR_SHOWNAMES)) && (RlvUtil::isNearbyAgent(info->mFromID)) )
+			{
+				origin_name = RlvStrings::getAnonym(origin_name);
+			}
+// [/RLVa:KB]
+			origin_name_found = TRUE;
+		}
+		break;
+	case TASK:
+		break;
+	}
+
+	//
+	// put xantispam here
+	//
+
+	// set up a notification
+	LLSD args;
+	args["OBJECTFROMNAME"] = info->mFromName;
+	args["OBJECTTYPE"] = assettype;
+	args["[OBJECTNAME]"] = asset_name;
+	args["NAME"] = origin_name_found ? origin_name : info->mFromName;
+
+	LLSD payload;
+	payload["from_id"] = info->mFromID;
 
 	LLNotification::Params p("ObjectGiveItem");
 	p.substitutions(args).payload(payload).functor(boost::bind(&LLOfferInfo::inventory_offer_callback, info, _1, _2));
+	p.name = (origin == AGENT) ? "UserGiveItem" : (origin_name_found ? "ObjectGiveItem" : "ObjectGiveItemUnknownUser");
 
-	// Object -> Agent Inventory Offer
-	if (info->mFromObject)
-	{
-		p.name = name_found ? "ObjectGiveItem" : "ObjectGiveItemUnknownUser";
-		xantispam_infostr = "an object owned by " + xantispam_infostr;
-	}
-	else // Agent -> Agent Inventory Offer
-	{
-// [RLVa:KB] - Checked: 2010-11-02 (RLVa-1.2.2a) | Modified: RLVa-1.2.2a
-		// Only filter if the offer is from a nearby agent and if there's no open IM session (doesn't necessarily have to be focused)
-		if ( (gRlvHandler.hasBehaviour(RLV_BHVR_SHOWNAMES)) && (RlvUtil::isNearbyAgent(info->mFromID)) &&
-			 (!RlvUIEnabler::hasOpenIM(info->mFromID)) )
-		{
-			args["NAME"] = RlvStrings::getAnonym(info->mFromName);
-		}
-// [/RLVa:KB]
-		p.name = "UserGiveItem";
-	}
-
-	// [/Ratany] strings are all set, now handle the request
-	if(xantispam_check(xantispam_fromstr, "&-InventoryHandleDistinctly", xantispam_infostr))
-	{
-		LLNotifications::instance().add(p);
-	}
-	else
-	{
-		xantispam_typestr.erase(std::remove_if(xantispam_typestr.begin(), xantispam_typestr.end(), isspace), xantispam_typestr.end());
-		xantispam_typestr.erase(std::remove_if(xantispam_typestr.begin(), xantispam_typestr.end(), boost::algorithm::is_any_of("?:")), xantispam_typestr.end());
-		if(xantispam_typestr.empty())
-		{
-			// deny like above
-			info->forceResponse(IOR_DECLINE);
-		}
-		// "&-InventoryHandleAccept?Inventory" is a wrapper which will be
-		// turned into '"Inventory" + xantispam_typestr' for lookups so these
-		// can be black- and whitelisted
-		if(xantispam_check(xantispam_fromstr, "&-InventoryHandleAccept?AcceptInventory?" + xantispam_typestr, xantispam_infostr))
-		{
-			info->forceResponse(IOR_DECLINE);
-		}
-		else
-		{
-			info->forceResponse(IOR_ACCEPT);
-		}
-	}
-	// [/Ratany]
+	// fire the notification
+	LLNotifications::instance().add(p);
 }
 
 

@@ -2669,7 +2669,7 @@ static bool xantispam_process_launcher(const std::string& rule, const std::strin
 // These may generate notifications which should be limited to show
 // errors and must not generate queries.
 //
-static bool xantispam_backgnd(const xantispam_request *request, std::vector<xantispam_request>& whitecache, const std::string& info)
+static bool xantispam_backgnd(const xantispam_request *request, std::vector<xantispam_request>& whitecache, std::vector<xantispam_request>& blackcache, const std::string& info)
 {
 	// info may be used to transfer further information if needed
 	// to process a request
@@ -2691,6 +2691,7 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 	// # &-StatusFriendIsOnline
 	// # &-IMSendNoAutoresponses
 	// # &-DomainHandleMediaURLs
+	// # &-InventoryHandleAccept?AcceptInventory?[type]
 
 	static bool cache_only = FALSE;
 
@@ -2733,7 +2734,56 @@ static bool xantispam_backgnd(const xantispam_request *request, std::vector<xant
 		boost::algorithm::erase_all(rule, "\"");
 		boost::algorithm::replace_all(rule, " ", "!");
 
+// TODO: fix return when distinct inventory handling is implemented to make it a seperate commit
 		return xantispam_process_launcher(rule, info);
+	}
+
+	// wrapper for distinct inventory offer handling
+	if(!request->type.find("&-InventoryHandleAccept?AcceptInventory?"))
+	{
+		// no need to go through checking when the origin is the user
+		if(request->from == gAgentID.asString())
+		{
+			return false;  // policy: don't block yourself
+		}
+		// transform into an ordinary request
+		std::vector<std::string> elements;
+		boost::algorithm::split(elements, request->type, boost::algorithm::is_any_of("?"));
+		if(elements.size() == 3)
+		{
+			if(elements[2].empty())
+			{
+				llwarns << "syntax error (undefined inventory type) in request: [" << request->from << "]{" << request->type << "}" << llendl;
+				return false;  // probably better accept in this case
+			}
+			if(elements[1] == "AcceptInventory")
+			{
+				// allow wildcard for type
+				xantispam_request bw;
+				bw.from = request->from;
+				bw.type = "AcceptInventory?ALL";
+				if(!xantispam_cachelookup(blackcache, &bw))
+				{
+					return true;  // deny inventory item if all types are blacklisted
+				}
+				if(!xantispam_cachelookup(whitecache, &bw))
+				{
+					return false;  // accept inventory item if all types are whitelisted
+				}
+				return xantispam_check(request->from, "AcceptInventory?" + elements[2], info);
+			}
+			else
+			{
+				llwarns << "syntax error (unexpected argument '" << elements[1] << "') in request: [" << request->from << "]{" << request->type << "}" << llendl;
+				return false;  // probably better accept in this case
+			}
+		}
+		else
+		{
+			llwarns << "syntax error (unexpected number of arguments) in request: [" << request->from << "]{" << request->type << "}" << llendl;
+			return false;  // probably better accept in this case
+		}
+
 	}
 
 	// For the rules that don't do someting special, return the result of the lookup.
@@ -2931,7 +2981,7 @@ bool xantispam_check(const std::string& fromstr, const std::string& filtertype, 
 		if(request_is_backgnd)
 		{
 			// handle those differently
-			return xantispam_backgnd(&request, whitecache, from_name);
+			return xantispam_backgnd(&request, whitecache, blackcache, from_name);
 		}
 
 		if(xantispam_cachelookup(undeccache, &request) )
@@ -3252,7 +3302,10 @@ void inventory_offer_handler(LLOfferInfo* info)
 {
 	// NaCl - Antispam Registry
 	if (NACLAntiSpamRegistry::checkQueue((U32)NACLAntiSpamRegistry::QUEUE_INVENTORY,info->mFromID))
+	{
+		delete info;
 		return;
+	}
 	// NaCl End
 	//If muted, don't even go through the messaging stuff.  Just curtail the offer here.
 	if (LLMuteList::getInstance()->isMuted(info->mFromID, info->mFromName))
@@ -3306,10 +3359,18 @@ void inventory_offer_handler(LLOfferInfo* info)
 
 	LLSD payload;
 
+	// [Ratany]
+	std::string xantispam_typestr;
+	std::string xantispam_fromstr;
+	std::string xantispam_infostr = "[unknown]";
+
 	// must protect against a NULL return from lookupHumanReadable()
 	std::string typestr = ll_safe_string(LLAssetType::lookupHumanReadable(info->mType));
 	if (!typestr.empty())
 	{
+		// users shouldn't need to change their rules when changing languages
+		xantispam_typestr = typestr;
+
 		// human readable matches string name from strings.xml
 		// lets get asset type localized name
 		args["OBJECTTYPE"] = LLTrans::getString(typestr);
@@ -3329,14 +3390,21 @@ void inventory_offer_handler(LLOfferInfo* info)
 	// off the LLOfferInfo.  Argh.
 	BOOL name_found = FALSE;
 	payload["from_id"] = info->mFromID;
+	// info->mFromID is incorrect for objects given by tasks in that it holds the OwnerID rather than the ObjectID.
+	// Can that be fixed by providing an ObjectID?
+	xantispam_fromstr = info->mObjectID.isNull() ? info->mFromID.asString() : info->mObjectID.asString();
 	args["OBJECTFROMNAME"] = info->mFromName;
 	args["NAME"] = info->mFromName;
+	xantispam_infostr = info->mFromName;
 	if (info->mFromGroup)
 	{
 		std::string group_name;
 		if (gCacheName->getGroupName(info->mFromID, group_name))
 		{
 			args["NAME"] = group_name;
+			xantispam_infostr = xantispam_fromstr;
+			xantispam_fromstr = group_name;
+			xantispam_fromstr.erase(std::remove_if(xantispam_fromstr.begin(), xantispam_fromstr.end(), isspace), xantispam_fromstr.end());
 			name_found = TRUE;
 		}
 	}
@@ -3353,6 +3421,7 @@ void inventory_offer_handler(LLOfferInfo* info)
 			}
 // [/RLVa:KB]
 			args["NAME"] = full_name;
+			xantispam_infostr = full_name;
 			name_found = TRUE;
 		}
 	}
@@ -3365,6 +3434,7 @@ void inventory_offer_handler(LLOfferInfo* info)
 	if (info->mFromObject)
 	{
 		p.name = name_found ? "ObjectGiveItem" : "ObjectGiveItemUnknownUser";
+		xantispam_infostr = "an object owned by " + xantispam_infostr;
 	}
 	else // Agent -> Agent Inventory Offer
 	{
@@ -3379,7 +3449,33 @@ void inventory_offer_handler(LLOfferInfo* info)
 		p.name = "UserGiveItem";
 	}
 
-	LLNotifications::instance().add(p);
+	// [/Ratany] strings are all set, now handle the request
+	if(xantispam_check(xantispam_fromstr, "&-InventoryHandleDistinctly", xantispam_infostr))
+	{
+		LLNotifications::instance().add(p);
+	}
+	else
+	{
+		xantispam_typestr.erase(std::remove_if(xantispam_typestr.begin(), xantispam_typestr.end(), isspace), xantispam_typestr.end());
+		xantispam_typestr.erase(std::remove_if(xantispam_typestr.begin(), xantispam_typestr.end(), boost::algorithm::is_any_of("?:")), xantispam_typestr.end());
+		if(xantispam_typestr.empty())
+		{
+			// deny like above
+			info->forceResponse(IOR_DECLINE);
+		}
+		// "&-InventoryHandleAccept?Inventory" is a wrapper which will be
+		// turned into '"Inventory" + xantispam_typestr' for lookups so these
+		// can be black- and whitelisted
+		if(xantispam_check(xantispam_fromstr, "&-InventoryHandleAccept?AcceptInventory?" + xantispam_typestr, xantispam_infostr))
+		{
+			info->forceResponse(IOR_DECLINE);
+		}
+		else
+		{
+			info->forceResponse(IOR_ACCEPT);
+		}
+	}
+	// [/Ratany]
 }
 
 

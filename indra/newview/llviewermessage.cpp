@@ -3394,6 +3394,7 @@ void inventory_offer_handler(LLOfferInfo* info)
 	{
 		// return on bogus asset type
 		info->forceResponse(IOR_DECLINE);
+		return;
 	}
 
 	// figure out the origin of the offer
@@ -3439,26 +3440,46 @@ void inventory_offer_handler(LLOfferInfo* info)
 		break;
 	}
 
-	//
-	// put xantispam here
-	//
+	// xantispam ...
+	std::string xa_origin_string = (origin == AGENT) ? info->mFromID.asString() : (origin_name_found ? origin_name : (origin == GROUP) ? "[apparently-originating-from-groupID(" + info->mFromID.asString() + ")]" : "[apparently-originating-from-object-owned-by-agentID(" + info->mFromID.asString() + ")]");
+	xa_origin_string.erase(std::remove_if(xa_origin_string.begin(), xa_origin_string.end(), isspace), xa_origin_string.end());
+	xa_origin_string.erase(std::remove_if(xa_origin_string.begin(), xa_origin_string.end(), boost::algorithm::is_any_of("?:")), xa_origin_string.end());
 
-	// set up a notification
-	LLSD args;
-	args["OBJECTFROMNAME"] = info->mFromName;
-	args["OBJECTTYPE"] = assettype;
-	args["[OBJECTNAME]"] = asset_name;
-	args["NAME"] = origin_name_found ? origin_name : info->mFromName;
+	if(xantispam_check(xa_origin_string, "&-InventoryHandleDistinctly", assettype))
+	{  // not handled by xa, do as usual
+		// set up a notification
+		LLSD args;
+		args["OBJECTFROMNAME"] = info->mFromName;
+		args["OBJECTTYPE"] = assettype;
+		args["[OBJECTNAME]"] = asset_name;
+		args["NAME"] = origin_name_found ? origin_name : info->mFromName;
 
-	LLSD payload;
-	payload["from_id"] = info->mFromID;
+		LLSD payload;
+		payload["from_id"] = info->mFromID;
 
-	LLNotification::Params p("ObjectGiveItem");
-	p.substitutions(args).payload(payload).functor(boost::bind(&LLOfferInfo::inventory_offer_callback, info, _1, _2));
-	p.name = (origin == AGENT) ? "UserGiveItem" : (origin_name_found ? "ObjectGiveItem" : "ObjectGiveItemUnknownUser");
+		LLNotification::Params p("ObjectGiveItem");
+		p.substitutions(args).payload(payload).functor(boost::bind(&LLOfferInfo::inventory_offer_callback, info, _1, _2));
+		p.name = (origin == AGENT) ? "UserGiveItem" : (origin_name_found ? "ObjectGiveItem" : "ObjectGiveItemUnknownUser");
 
-	// fire the notification
-	LLNotifications::instance().add(p);
+		// fire the notification
+		LLNotifications::instance().add(p);
+	}
+	else
+	{  // handled by xa
+		// ... so check for particular rule
+		std::string xa_asset_type = assettype;
+		xa_asset_type.erase(std::remove_if(xa_asset_type.begin(), xa_asset_type.end(), isspace), xa_asset_type.end());
+		xa_asset_type.erase(std::remove_if(xa_asset_type.begin(), xa_asset_type.end(), boost::algorithm::is_any_of("?:")), xa_asset_type.end());
+
+		if(xantispam_check(xa_origin_string, "&-InventoryHandleAccept?AcceptInventory?" + xa_asset_type, asset_name))
+		{
+			info->forceResponse(IOR_DECLINE);
+		}
+		else
+		{
+			info->forceResponse(IOR_ACCEPT);
+		}
+	}
 }
 
 

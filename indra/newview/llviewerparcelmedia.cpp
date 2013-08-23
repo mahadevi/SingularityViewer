@@ -202,17 +202,17 @@ void LLViewerParcelMedia::play(LLParcel* parcel, bool filter)
 	std::string media_url = parcel->getMediaURL();
 	LLStringUtil::trim(media_url);
 
-	if(!allowedMedia(media_url))
-	{
-		return;
-	}
-
 	if(filter)
 	{
 		// If filtering is needed or in case media_url just changed
 		// to something we did not yet approve.
 		LLViewerParcelMediaAutoPlay::playStarted();
 		filterMedia(parcel, 0);
+		return;
+	}
+
+	if(!allowedMedia(media_url))
+	{
 		return;
 	}
 
@@ -705,18 +705,20 @@ void LLViewerParcelMedia::playStreamingMusic(LLParcel* parcel, bool filter)
 	std::string music_url = parcel->getMusicURL();
 	LLStringUtil::trim(music_url);
 
-	if(!allowedMedia(music_url))
-	{
-		return;
-	}
-
 	if(filter)
 	{
 		// If filtering is needed or in case music_url just changed
 		// to something we did not yet approve.
 		filterMedia(parcel, 1);
+		return;
 	}
-	else if (gAudiop)
+
+	if(!allowedMedia(music_url))
+	{
+		return;
+	}
+
+	if(gAudiop)
 	{
 		LLStreamingAudioInterface *stream = gAudiop->getStreamingAudioImpl();
 		if(stream && stream->supportsAdjustableBufferSizes())
@@ -786,6 +788,7 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 			{
 				sAllowedMedia.erase(ip);
 			}
+			LLOverlayBar::audioFilterStop();
 		}
 		else
 		{
@@ -806,7 +809,10 @@ bool LLViewerParcelMedia::allowedMedia(std::string media_url)
 				sDeniedMedia.erase(ip);
 			}
 		}
-		// SLFloaterMediaFilter::getInstance()->setDirty();
+		if(SLFloaterMediaFilter::findInstance())
+		{
+			SLFloaterMediaFilter::getInstance()->setDirty();
+		}
 		return !xantispam_denied;
 	}
 
@@ -844,7 +850,7 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 		return;
 	}
 
-	std::string media_action = "ignore";
+	std::string media_action;
 	std::string media_url;
 	std::string domain;
 	std::string ip;
@@ -909,6 +915,9 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 			{
 				sAllowedMedia.erase(ip);
 			}
+			// perhaps not needed:
+			LLOverlayBar::audioFilterStop();
+			media_action = "ignore";
 		}
 		else
 		{
@@ -930,7 +939,10 @@ void LLViewerParcelMedia::filterMedia(LLParcel* parcel, U32 type)
 			}
 			media_action = "allow";
 		}
-		// SLFloaterMediaFilter::getInstance()->setDirty();
+		if(SLFloaterMediaFilter::findInstance())
+		{
+			SLFloaterMediaFilter::getInstance()->setDirty();
+		}
 	}
 	else
 	{
